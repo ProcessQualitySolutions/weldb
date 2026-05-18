@@ -1,9 +1,11 @@
-"""Monospace rendering of WMDB Boiler documents."""
+"""Rendering of WMDB Boiler documents (monospace and PDF)."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+from wmdb.boiler.document import FILE_EXTENSION, REQUIRED_FIELDS
 from wmdb.boiler.welds import Grid, _current_views
 
 POINT_ICON = "\u00b7"  # middle dot
@@ -131,3 +133,102 @@ def render_monospace(doc: dict[str, Any], col_width: int = 8) -> str:
             sections.append(f"[ {view_name} ]\n{grid_text}")
 
     return "\n\n".join(sections)
+
+
+def render_pdf(source_path: str | Path) -> Path:
+    """Render a .weldb file to a minimalistic PDF in the same directory.
+
+    The PDF has the same stem as the source file with a .pdf extension.
+    Returns the path to the written PDF.
+
+    Requires the ``fpdf2`` package (install with ``pip install wmdb[pdf]``).
+    """
+    try:
+        from fpdf import FPDF
+    except ImportError as exc:
+        raise ImportError(
+            "PDF rendering requires fpdf2. Install with: pip install wmdb[pdf]"
+        ) from exc
+
+    from wmdb.boiler.document import load
+
+    source_path = Path(source_path)
+    doc = load(source_path)
+    pdf_path = source_path.with_suffix(".pdf")
+
+    pdf = FPDF(orientation="L", unit="mm", format="letter")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    # --- Header: required fields + custom fields ---
+    pdf.set_font("Courier", "B", 14)
+    pdf.cell(0, 8, doc.get("panel_name", ""), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Courier", "", 9)
+    meta_parts = [
+        f"Material: {doc.get('tube_mtrl', '')}",
+        f"OD: {doc.get('tube_od', '')}",
+        f"Wall: {doc.get('tube_wall', '')}",
+        f"Units: {doc.get('units', '')}",
+    ]
+    pdf.cell(0, 5, "  |  ".join(meta_parts), new_x="LMARGIN", new_y="NEXT")
+
+    # Custom fields
+    custom_keys = [k for k in doc if k not in REQUIRED_FIELDS]
+    if custom_keys:
+        custom_parts = [f"{k}: {doc[k]}" for k in custom_keys]
+        pdf.cell(0, 5, "  |  ".join(custom_parts), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.ln(4)
+
+    # --- View grids (monospace) ---
+    views = _current_views(doc)
+    pdf.set_font("Courier", "", 7)
+    line_height = 3.2
+
+    for view in views:
+        view_label = view["name"].replace("_", " ").upper()
+        grid_text = _render_grid(view["grid"])
+        # Replace Unicode icons with ASCII for built-in PDF fonts
+        grid_text = grid_text.replace(POINT_ICON, "*").replace(LINEAR_ICON, "->")
+
+        pdf.set_font("Courier", "B", 9)
+        pdf.cell(0, 5, view_label, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Courier", "", 7)
+
+        for line in grid_text.split("\n"):
+            if pdf.get_y() > pdf.h - 20:
+                pdf.add_page()
+            pdf.cell(0, line_height, line, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+
+    # --- Revision history table ---
+    maps = doc.get("maps", [])
+    recent = maps[-10:]  # last 10 revisions
+
+    if recent:
+        if pdf.get_y() > pdf.h - 40:
+            pdf.add_page()
+
+        pdf.set_font("Courier", "B", 9)
+        pdf.cell(0, 5, "REVISION HISTORY", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+
+        col_widths = [18, 28, 30, 0]  # Rev, Date, Updated By, Comments (fill)
+        comments_w = pdf.w - pdf.l_margin - pdf.r_margin - sum(col_widths[:3])
+        col_widths[3] = comments_w
+        headers = ["Rev", "Date", "Updated By", "Comments"]
+
+        pdf.set_font("Courier", "B", 7)
+        for i, hdr in enumerate(headers):
+            pdf.cell(col_widths[i], 4, hdr, border=1)
+        pdf.ln()
+
+        pdf.set_font("Courier", "", 7)
+        for m in recent:
+            for i, key in enumerate(["rev", "date", "updated_by", "comments"]):
+                pdf.cell(col_widths[i], 4, str(m.get(key, "")), border=1)
+            pdf.ln()
+
+    pdf.output(str(pdf_path))
+    return pdf_path

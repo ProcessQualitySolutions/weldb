@@ -16,6 +16,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pdf = [
+    "fpdf2>=2.7",
+]
 dev = [
     "pytest>=7.0",
     "ruff>=0.4",

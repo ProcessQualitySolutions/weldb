@@ -5,7 +5,7 @@ This module is a placeholder. The pipeline drawing standard has not yet been def
 
 from wmdb.pipeline.document import load, save
 from wmdb.pipeline.welds import get_linear_welds, get_point_welds
-from wmdb.pipeline.render import render_monospace
+from wmdb.pipeline.render import render_monospace, render_pdf
 from wmdb.types import LinearWeld, PointWeld
 
 __all__ = [
@@ -14,6 +14,7 @@ __all__ = [
     "get_point_welds",
     "get_linear_welds",
     "render_monospace",
+    "render_pdf",
     "PointWeld",
     "LinearWeld",
 ]
