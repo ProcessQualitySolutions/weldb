@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from wmdb.exceptions import DuplicatePointWeldInViewError, EmbeddedSpecialCharError
+from wmdb.exceptions import (
+    ConflictingWeldIdError,
+    DuplicatePointWeldInViewError,
+    EmbeddedSpecialCharError,
+)
 from wmdb.types import LinearWeld, PointWeld
 
 Grid = list[list[str]]
@@ -19,14 +23,36 @@ def _current_views(doc: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _validate_grid(grid: Grid) -> None:
-    """Check every cell for embedded * or ^ characters."""
+    """Check every cell for embedded * or _ characters."""
     for r, row in enumerate(grid):
         for c, cell in enumerate(row):
             if not cell or not cell.strip():
                 continue
-            if cell[0] not in ("*", "^"):
-                if "*" in cell or "^" in cell:
+            if cell[0] not in ("*", "_"):
+                if "*" in cell or "_" in cell:
                     raise EmbeddedSpecialCharError(cell, r, c)
+
+
+def _validate_no_conflicting_ids(views: list[dict[str, Any]]) -> None:
+    """Ensure no point weld and linear weld share the same base ID.
+
+    For example, *T205 and _T205 both have base ID "T205" and would collide
+    when the prefix is stripped for weld log export.
+    """
+    point_ids: dict[str, str] = {}  # base_id -> original cell
+    linear_ids: dict[str, str] = {}  # base_id -> original cell
+
+    for view in views:
+        for row in view["grid"]:
+            for cell in row:
+                if cell.startswith("*"):
+                    point_ids[cell[1:]] = cell
+                elif cell.startswith("_"):
+                    linear_ids[cell[1:]] = cell
+
+    for base_id in point_ids:
+        if base_id in linear_ids:
+            raise ConflictingWeldIdError(base_id, point_ids[base_id], linear_ids[base_id])
 
 
 def get_point_welds(doc: dict[str, Any]) -> list[PointWeld]:
@@ -40,9 +66,11 @@ def get_point_welds(doc: dict[str, Any]) -> list[PointWeld]:
 
     Raises DuplicatePointWeldInViewError if any point weld ID appears more than once
     within a single view's grid.
-    Raises EmbeddedSpecialCharError if * or ^ appears mid-string in any cell.
+    Raises ConflictingWeldIdError if a point weld and linear weld share the same base ID.
+    Raises EmbeddedSpecialCharError if * or _ appears mid-string in any cell.
     """
     views = _current_views(doc)
+    _validate_no_conflicting_ids(views)
     all_welds: dict[str, PointWeld] = {}
 
     for view in views:
@@ -78,9 +106,11 @@ def get_linear_welds(doc: dict[str, Any]) -> list[LinearWeld]:
     Linear welds are collected across all views. If the same linear weld ID appears
     in multiple views, cells from all views are combined.
 
-    Raises EmbeddedSpecialCharError if * or ^ appears mid-string in any cell.
+    Raises ConflictingWeldIdError if a point weld and linear weld share the same base ID.
+    Raises EmbeddedSpecialCharError if * or _ appears mid-string in any cell.
     """
     views = _current_views(doc)
+    _validate_no_conflicting_ids(views)
     groups: dict[str, list[tuple[int, int]]] = {}
 
     for view in views:
@@ -89,7 +119,7 @@ def get_linear_welds(doc: dict[str, Any]) -> list[LinearWeld]:
 
         for r, row in enumerate(grid):
             for c, cell in enumerate(row):
-                if cell.startswith("^"):
+                if cell.startswith("_"):
                     groups.setdefault(cell, []).append((r, c))
 
     return [LinearWeld(weld_id=wid, cells=locs) for wid, locs in groups.items()]

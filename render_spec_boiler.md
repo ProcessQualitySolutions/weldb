@@ -2,18 +2,18 @@
 
 This document defines how WMDB Boiler weld maps must be rendered visually, whether on the web, in a terminal, or in print. Implementations must follow these rules to ensure consistent, unambiguous weld map drawings.
 
-## Icons
+## Prefix Characters
 
-Only two weld icons exist. No other icons are permitted in the drawing.
+Only two weld prefix characters exist. No other prefix characters are permitted in the drawing.
 
-| Weld Type    | Raw Prefix | Render Icon | Description |
-|-------------|-----------|-------------|-------------|
-| Point weld  | `*`       | `·` (U+00B7, middle dot) | Discrete weld at a single location. |
-| Linear weld | `^`       | `→` (U+2192, right arrow) | Segment of a continuous weld spanning multiple cells. |
+| Weld Type    | Prefix | Description |
+|-------------|--------|-------------|
+| Point weld  | `*`    | Discrete weld at a single location. |
+| Linear weld | `_`    | Segment of a continuous weld spanning multiple cells. |
 
-The raw prefix characters (`*` and `^`) are for data only and **must never appear** in rendered output. Strip the prefix and prepend the appropriate icon when displaying the weld label.
+The prefix characters (`*` and `_`) are part of the weld label and **are rendered as-is** in the output. No substitution or icon replacement is performed.
 
-Non-weld text cells (tube labels, annotations, etc.) are rendered as plain text with no icon.
+Non-weld text cells (tube labels, annotations, etc.) are rendered as plain text with no prefix.
 
 ## Multi-View Rendering
 
@@ -36,19 +36,19 @@ A blank line or visual separator must appear between consecutive view grids to c
 ### Point Welds
 
 - Each point weld cell must have a **visible border on all four sides**.
-- Display the middle dot icon followed by the weld label (e.g., `· W1`).
+- Display the cell value as-is (e.g., `*W1`).
 
 ### Linear Welds
 
 - Consecutive cells in the **same row** that share the same linear weld ID must be **visually merged** into a single span.
 - The merged span has **exterior borders only** — no internal cell borders within the span.
 - The weld label appears **once** in the merged span, not repeated per cell.
-- Display the arrow icon followed by the weld label (e.g., `→ L1`).
+- Display the cell value as-is (e.g., `_L1`).
 - Linear weld cells that are **not adjacent** (e.g., separated by a point weld) form separate visual spans, each labeled independently.
 
 ### Plain Text Cells
 
-- No icon, no special borders beyond the default grid lines.
+- No prefix, no special borders beyond the default grid lines.
 - Rendered as-is.
 
 ### Empty Cells
@@ -58,6 +58,15 @@ A blank line or visual separator must appear between consecutive view grids to c
 ## Color
 
 Drawings **must not rely on color coding** to convey information. Color may be used as a supplementary visual aid (e.g., highlighting), but all information must be legible in monochrome.
+
+## Legend
+
+All rendered drawings **must include a legend** explaining the prefix characters. The legend must appear in the margins or footer of the drawing and contain at minimum:
+
+- `*` = Point weld (discrete weld at a single location)
+- `_` = Linear weld (continuous weld spanning multiple cells)
+
+The legend must be present on every rendered page or sheet that contains a weld map grid.
 
 ## Revision History Table
 
@@ -85,4 +94,4 @@ Any custom top-level fields present in the WMDB Boiler document should be render
 
 ## Reference Implementation
 
-The `wmdb.boiler` Python module includes a `render_monospace` function that produces an ASCII-art rendering suitable for terminal output. This serves as a minimal reference implementation of this spec.
+The `wmdb.boiler` Python module includes a `render_monospace` function that produces an ASCII-art rendering suitable for terminal output, and a `render_pdf` function that produces a minimalistic PDF. These serve as reference implementations of this spec.

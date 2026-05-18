@@ -8,9 +8,6 @@ from typing import Any
 from wmdb.boiler.document import FILE_EXTENSION, REQUIRED_FIELDS
 from wmdb.boiler.welds import Grid, _current_views
 
-POINT_ICON = "\u00b7"  # middle dot
-LINEAR_ICON = "\u2192"  # right arrow
-
 
 def _render_grid(grid: Grid, col_width: int = 8) -> str:
     """Render a single grid as a monospace text table."""
@@ -25,7 +22,7 @@ def _render_grid(grid: Grid, col_width: int = 8) -> str:
     for r in range(rows):
         for c in range(cols):
             cell = grid[r][c]
-            if cell.startswith("^"):
+            if cell.startswith("_"):
                 linear_cell_map[(r, c)] = cell
 
     # Determine span starts
@@ -73,16 +70,12 @@ def _render_grid(grid: Grid, col_width: int = 8) -> str:
             if (r, c) in span_start:
                 span_len = span_start[(r, c)]
                 merged_width = col_width * span_len + (span_len - 1)
-                label = cell[1:]  # strip ^
-                display = f"{LINEAR_ICON} {label}"
-                content_parts.append(display.center(merged_width) + "|")
+                content_parts.append(cell.center(merged_width) + "|")
                 c += span_len
             elif (r, c) in skip:
                 c += 1
             elif cell.startswith("*"):
-                label = cell[1:]
-                display = f"{POINT_ICON} {label}"
-                content_parts.append(display.center(col_width) + "|")
+                content_parts.append(cell.center(col_width) + "|")
                 c += 1
             else:
                 content_parts.append(cell.center(col_width) + "|")
@@ -116,11 +109,11 @@ def render_monospace(doc: dict[str, Any], col_width: int = 8) -> str:
     Views are separated by a blank line.
 
     Rules (per render_spec_boiler.md):
-    - Point welds (* prefix): show label without *, prefixed with middle-dot icon, bordered cell.
-    - Linear welds (^ prefix): show label without ^, prefixed with arrow icon. Cells sharing
-      the same linear weld ID in the same row are visually merged (single label, no
-      internal borders).
-    - Plain text: rendered as-is, no icon, no border.
+    - Point welds (* prefix): rendered as-is with bordered cell.
+    - Linear welds (_ prefix): rendered as-is. Cells sharing the same linear
+      weld ID in the same row are visually merged (single label, no internal
+      borders).
+    - Plain text: rendered as-is.
     - Empty cells: blank.
     """
     views = _current_views(doc)
@@ -189,8 +182,6 @@ def render_pdf(source_path: str | Path) -> Path:
     for view in views:
         view_label = view["name"].replace("_", " ").upper()
         grid_text = _render_grid(view["grid"])
-        # Replace Unicode icons with ASCII for built-in PDF fonts
-        grid_text = grid_text.replace(POINT_ICON, "*").replace(LINEAR_ICON, "->")
 
         pdf.set_font("Courier", "B", 9)
         pdf.cell(0, 5, view_label, new_x="LMARGIN", new_y="NEXT")
@@ -229,6 +220,16 @@ def render_pdf(source_path: str | Path) -> Path:
             for i, key in enumerate(["rev", "date", "updated_by", "comments"]):
                 pdf.cell(col_widths[i], 4, str(m.get(key, "")), border=1)
             pdf.ln()
+
+    # --- Legend ---
+    pdf.ln(4)
+    if pdf.get_y() > pdf.h - 20:
+        pdf.add_page()
+    pdf.set_font("Courier", "B", 9)
+    pdf.cell(0, 5, "LEGEND", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Courier", "", 8)
+    pdf.cell(0, 4, "* = Point weld (discrete weld at a single location)", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 4, "_ = Linear weld (continuous weld spanning multiple cells)", new_x="LMARGIN", new_y="NEXT")
 
     pdf.output(str(pdf_path))
     return pdf_path

@@ -61,9 +61,9 @@ The `grid` field is a rectangular list of lists of strings. Every inner list mus
 ### Cell Types
 
 - **Empty cell**: An empty string `""` or whitespace-only string.
-- **Plain text**: Any string that does not begin with `*` or `^`. Used for labels, tube numbers, annotations, etc.
+- **Plain text**: Any string that does not begin with `*` or `_`. Used for labels, tube numbers, annotations, etc.
 - **Point weld**: A string whose **first character** is `*` (e.g., `*W1`, `*102`). Represents a discrete weld at a single grid location.
-- **Linear weld**: A string whose **first character** is `^` (e.g., `^L1`, `^S5`). Represents a segment of a continuous weld that spans multiple cells.
+- **Linear weld**: A string whose **first character** is `_` (e.g., `_L1`, `_S5`). Represents a segment of a continuous weld that spans multiple cells.
 
 ### Trimming
 
@@ -75,8 +75,9 @@ All cell strings must be trimmed of leading and trailing whitespace before inter
 2. **Point welds may appear in multiple views.** The same point weld may appear in more than one view (e.g., a tube weld visible from both hot and cold sides). When extracting welds from a file, duplicates across views are collapsed — each point weld is reported once.
 3. **Point welds must be unique across a project.** When combining welds from multiple `.weldb` files, no two files may contain the same point-weld ID (after panel-number prefixing). Duplicates across files must raise an error.
 4. **Linear welds may repeat.** The same linear-weld string is expected to appear in multiple cells to define the extent of a continuous weld.
-5. **Embedded special characters are invalid.** If a cell string contains `*` or `^` at any position other than the first character, this is an error and must be raised when extracting welds. This prevents ambiguous labels like `tube*3` or `note^1` from silently corrupting data.
-6. **Linear welds need not be contiguous.** Point welds may occupy cells between segments of the same linear weld.
+5. **Embedded special characters are invalid.** If a cell string contains `*` or `_` at any position other than the first character, this is an error and must be raised when extracting welds. This prevents ambiguous labels like `tube*3` or `note_1` from silently corrupting data.
+6. **Point and linear weld IDs must not collide.** After stripping the prefix character (`*` or `_`), no point weld and linear weld may share the same base ID. For example, `*T205` and `_T205` both have base ID `T205`, which would produce conflicting entries in the weld log. This must raise an error.
+7. **Linear welds need not be contiguous.** Point welds may occupy cells between segments of the same linear weld.
 
 ## Recommended Naming Conventions
 
@@ -91,7 +92,7 @@ Point welds at tube locations. Use the tube number followed by `T` (top) or `B` 
 ### Membrane Welds
 
 Linear welds running along membrane bars between tubes. Use sequential letters:
-- `^A`, `^B`, `^C`, etc.
+- `_A`, `_B`, `_C`, etc.
 
 ### Peanut Welds
 
@@ -100,8 +101,8 @@ Linear welds that close the gaps between tube welds in the same row. These typic
 ### Clips
 
 Linear welds that attach clips to tubes. Clips occupy a single cell and are named with a `C` prefix followed by a letter:
-- `^CA` — clip A
-- `^CB` — clip B
+- `_CA` — clip A
+- `_CB` — clip B
 
 ### Ports
 
@@ -126,18 +127,18 @@ maps:
     views:
       - name: hot_side
         grid:
-          - [^A, "*250T", ^B, "*251T", ^C, "*252T", ^D]
-          - [^A, "",      "",  "",     "",  "",      ^D]
-          - [^A, "",      "",  "",     "",  "",      ^D]
-          - [^A, "",      "",  "",     "",  "",      ^D]
-          - [^A, "",      "",  IR,     "",  "",      ^D]
-          - [^A, "",      "",  "",     "",  "",      ^D]
-          - [^A, "*250B", ^E, "*251B", ^F, "*252B", ^D]
+          - [_A, "*250T", _B, "*251T", _C, "*252T", _D]
+          - [_A, "",      "",  "",     "",  "",      _D]
+          - [_A, "",      "",  "",     "",  "",      _D]
+          - [_A, "",      "",  "",     "",  "",      _D]
+          - [_A, "",      "",  IR,     "",  "",      _D]
+          - [_A, "",      "",  "",     "",  "",      _D]
+          - [_A, "*250B", _E, "*251B", _F, "*252B", _D]
       - name: cold_side
         grid:
           - ["", "", "", "", "", "", ""]
           - ["", "", "", "", "", "", ""]
-          - ["", "", "", ^CA, "", "", ""]
+          - ["", "", "", _CA, "", "", ""]
           - ["", "", "", "", "", "", ""]
           - ["", "", "", "", "", "", ""]
           - ["", "", "", "", "", "", ""]
