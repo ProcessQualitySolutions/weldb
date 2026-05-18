@@ -20,3 +20,11 @@ class LinearWeld:
 
     weld_id: str
     cells: list[tuple[int, int]] = field(default_factory=list)
+
+
+@dataclass
+class AreaWeld:
+    """An area weld that spans one or more grid cells (e.g., cladding)."""
+
+    weld_id: str
+    cells: list[tuple[int, int]] = field(default_factory=list)

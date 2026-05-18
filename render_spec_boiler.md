@@ -10,8 +10,9 @@ Only two weld prefix characters exist. No other prefix characters are permitted 
 |-------------|--------|-------------|
 | Point weld  | `*`    | Discrete weld at a single location. |
 | Linear weld | `_`    | Segment of a continuous weld spanning multiple cells. |
+| Area weld   | `@`    | Surface weld spanning multiple cells (e.g., cladding). |
 
-The prefix characters (`*` and `_`) are part of the weld label and **are rendered as-is** in the output. No substitution or icon replacement is performed.
+The prefix characters (`*`, `_`, and `@`) are part of the weld label and **are rendered as-is** in the output. No substitution or icon replacement is performed.
 
 Non-weld text cells (tube labels, annotations, etc.) are rendered as plain text with no prefix.
 
@@ -46,6 +47,11 @@ A blank line or visual separator must appear between consecutive view grids to c
 - Display the cell value as-is (e.g., `_L1`).
 - Linear weld cells that are **not adjacent** (e.g., separated by a point weld) form separate visual spans, each labeled independently.
 
+### Area Welds
+
+- Rendered identically to linear welds in the grid: consecutive cells in the same row with the same area weld ID are **visually merged** into a single span.
+- Display the cell value as-is (e.g., `@CL1`).
+
 ### Plain Text Cells
 
 - No prefix, no special borders beyond the default grid lines.
@@ -67,14 +73,27 @@ If **any** linear weld is missing a `length` value, the tally must not be shown.
 
 This is all-or-nothing: either every linear weld has a length and the tally is displayed, or none is shown and the notice is displayed instead.
 
+## Area Weld Area Tally
+
+If **every** area weld in the document has resolved `length` and `height` values (both integers, via `weld_overrides`), the drawing must include an **area weld tally** showing the total area (sum of `length * height` for each area weld). The tally should appear near the linear weld tally.
+
+If **any** area weld is missing `length` or `height`, the tally must not be shown. Instead, render the text: **"Area weld dimensions not recorded"**.
+
+If the document contains no area welds, neither the tally nor the notice is shown.
+
 ## Legend
 
 All rendered drawings **must include a legend** explaining the prefix characters. The legend must appear in the margins or footer of the drawing and contain at minimum:
 
 - `*` = Point weld (discrete weld at a single location)
 - `_` = Linear weld (continuous weld spanning multiple cells)
+- `@` = Area weld (surface weld spanning multiple cells, e.g. cladding)
 
 The legend must be present on every rendered page or sheet that contains a weld map grid.
+
+## Not to Scale
+
+All rendered drawings **must include a "NOT TO SCALE" notice**. This must appear prominently — either in the title bar / header area, or in the margin of the drawing. The grid is a schematic representation only and does not represent physical dimensions.
 
 ## Revision History Table
 

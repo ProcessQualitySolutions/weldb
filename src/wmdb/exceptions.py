@@ -28,7 +28,7 @@ class DuplicatePointWeldError(WMDBError):
 
 
 class EmbeddedSpecialCharError(WMDBError):
-    """Raised when * or _ appears in a cell string but not as the first character."""
+    """Raised when *, _, or @ appears in a cell string but not as the first character."""
 
     def __init__(self, cell_value: str, row: int, col: int):
         self.cell_value = cell_value
@@ -36,7 +36,7 @@ class EmbeddedSpecialCharError(WMDBError):
         self.col = col
         super().__init__(
             f"Cell ({row}, {col}) contains embedded special character: '{cell_value}'. "
-            f"'*' and '_' are only valid as the first character."
+            f"'*', '_', and '@' are only valid as the first character."
         )
 
 
@@ -54,14 +54,14 @@ class DuplicatePointWeldInViewError(WMDBError):
 
 
 class ConflictingWeldIdError(WMDBError):
-    """Raised when a point weld and linear weld share the same base ID."""
+    """Raised when two welds of different types share the same base ID."""
 
-    def __init__(self, base_id: str, point_id: str, linear_id: str):
+    def __init__(self, base_id: str, weld_a: str, weld_b: str):
         self.base_id = base_id
-        self.point_id = point_id
-        self.linear_id = linear_id
+        self.weld_a = weld_a
+        self.weld_b = weld_b
         super().__init__(
-            f"Conflicting weld IDs: point weld '{point_id}' and linear weld '{linear_id}' "
+            f"Conflicting weld IDs: '{weld_a}' and '{weld_b}' "
             f"share base ID '{base_id}' — these would collide in the weld log."
         )
 

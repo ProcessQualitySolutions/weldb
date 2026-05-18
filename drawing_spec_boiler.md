@@ -56,7 +56,8 @@ The `weld_overrides` value is a mapping. Keys are one of:
 |------------|-------|
 | `point`    | All point welds in the document. |
 | `linear`   | All linear welds in the document. |
-| Any weld ID (e.g., `*250T`, `_CA`) | A single weld. |
+| `area`     | All area welds in the document. |
+| Any weld ID (e.g., `*250T`, `_CA`, `@CL1`) | A single weld. |
 
 Each value is a mapping of field names to override values.
 
@@ -70,11 +71,12 @@ When resolving the effective properties of a weld, the most specific source wins
 
 ### Standard Override Fields
 
-| Field    | Applies To    | Type   | Description |
-|----------|--------------|--------|-------------|
-| `length` | Linear welds | number | Total length of the linear weld, in the document's unit system. |
+| Field    | Applies To             | Type | Description |
+|----------|------------------------|------|-------------|
+| `length` | Linear welds, area welds | int  | Length of the weld, in the document's unit system. |
+| `height` | Area welds              | int  | Height of the weld, in the document's unit system. |
 
-Any field that appears as a top-level string or number field may also be used as an override (e.g., `tube_od`, `tube_wall`, `tube_mtrl`). Additional override-only fields like `length` are also permitted.
+Any field that appears as a top-level string or number field may also be used as an override (e.g., `tube_od`, `tube_wall`, `tube_mtrl`). Additional override-only fields like `length` and `height` are also permitted.
 
 ## Map Object
 
@@ -114,9 +116,10 @@ The `grid` field is a rectangular list of lists of strings. Every inner list mus
 ### Cell Types
 
 - **Empty cell**: An empty string `""` or whitespace-only string.
-- **Plain text**: Any string that does not begin with `*` or `_`. Used for labels, tube numbers, annotations, etc.
+- **Plain text**: Any string that does not begin with `*`, `_`, or `@`. Used for labels, tube numbers, annotations, etc.
 - **Point weld**: A string whose **first character** is `*` (e.g., `*W1`, `*102`). Represents a discrete weld at a single grid location.
 - **Linear weld**: A string whose **first character** is `_` (e.g., `_L1`, `_S5`). Represents a segment of a continuous weld that spans multiple cells.
+- **Area weld**: A string whose **first character** is `@` (e.g., `@CL1`, `@PAD1`). Represents a surface weld spanning multiple cells (e.g., cladding, pad welds). Behaves like a linear weld in the grid (consecutive same-ID cells merge) but carries `length` and `height` dimensions.
 
 ### Trimming
 
@@ -128,9 +131,10 @@ All cell strings must be trimmed of leading and trailing whitespace before inter
 2. **Point welds may appear in multiple views.** The same point weld may appear in more than one view (e.g., a tube weld visible from both hot and cold sides). When extracting welds from a file, duplicates across views are collapsed — each point weld is reported once.
 3. **Point welds must be unique across a project.** When combining welds from multiple `.weldb` files, no two files may contain the same point-weld ID (after panel-number prefixing). Duplicates across files must raise an error.
 4. **Linear welds may repeat.** The same linear-weld string is expected to appear in multiple cells to define the extent of a continuous weld.
-5. **Embedded special characters are invalid.** If a cell string contains `*` or `_` at any position other than the first character, this is an error and must be raised when extracting welds. This prevents ambiguous labels like `tube*3` or `note_1` from silently corrupting data.
-6. **Point and linear weld IDs must not collide.** After stripping the prefix character (`*` or `_`), no point weld and linear weld may share the same base ID. For example, `*T205` and `_T205` both have base ID `T205`, which would produce conflicting entries in the weld log. This must raise an error.
-7. **Linear welds need not be contiguous.** Point welds may occupy cells between segments of the same linear weld.
+5. **Embedded special characters are invalid.** If a cell string contains `*`, `_`, or `@` at any position other than the first character, this is an error and must be raised when extracting welds. This prevents ambiguous labels like `tube*3` or `note_1` from silently corrupting data.
+6. **Weld IDs must not collide across types.** After stripping the prefix character (`*`, `_`, or `@`), no two welds of different types may share the same base ID. For example, `*T205` and `_T205` both have base ID `T205`, which would produce conflicting entries in the weld log. This must raise an error.
+7. **Linear and area welds need not be contiguous.** Point welds may occupy cells between segments of the same linear or area weld.
+8. **Area welds may repeat.** The same area-weld string is expected to appear in multiple cells to define the extent of a surface weld, like linear welds.
 
 ## Recommended Naming Conventions
 
@@ -157,6 +161,12 @@ Linear welds that attach clips to tubes. Clips occupy a single cell and are name
 - `_CA` — clip A
 - `_CB` — clip B
 
+### Cladding / Pad Welds
+
+Area welds used for cladding or pad welding. Named with a descriptive prefix:
+- `@CL1` — cladding area 1
+- `@PAD1` — pad weld 1
+
 ### Ports
 
 Plain text labels for ports, inspections, or other features. These are not welds and carry no prefix:
@@ -174,9 +184,12 @@ client: ACME Power        # custom field
 
 weld_overrides:
   linear:
-    length: 36.0            # default length for all linear welds
+    length: 36              # default length for all linear welds
+  area:
+    length: 24              # default dimensions for all area welds
+    height: 12
   _CA:
-    length: 6.0             # clip A is shorter
+    length: 6               # clip A is shorter
     tube_od: 1.5            # clip welded to smaller tube
 
 maps:

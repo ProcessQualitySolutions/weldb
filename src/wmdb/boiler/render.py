@@ -27,6 +27,25 @@ def _linear_weld_length_tally(doc: dict[str, Any]) -> tuple[bool, float]:
     return True, total
 
 
+def _area_weld_tally(doc: dict[str, Any]) -> tuple[bool, float]:
+    """Check if all area welds have length and height, return total area.
+
+    Returns (all_have_dims, total_area).
+    """
+    props = resolve_weld_properties(doc)
+    area_props = {k: v for k, v in props.items() if k.startswith("@")}
+    if not area_props:
+        return False, 0.0
+    total = 0.0
+    for wid, p in area_props.items():
+        length = p.get("length")
+        height = p.get("height")
+        if length is None or height is None:
+            return False, 0.0
+        total += int(length) * int(height)
+    return True, total
+
+
 def _render_grid(grid: Grid, col_width: int = 8) -> str:
     """Render a single grid as a monospace text table."""
     if not grid or not grid[0]:
@@ -35,12 +54,12 @@ def _render_grid(grid: Grid, col_width: int = 8) -> str:
     rows = len(grid)
     cols = len(grid[0])
 
-    # Build linear weld cell map for this grid
+    # Build spanning weld cell map (linear and area welds merge in rows)
     linear_cell_map: dict[tuple[int, int], str] = {}
     for r in range(rows):
         for c in range(cols):
             cell = grid[r][c]
-            if cell.startswith("_"):
+            if cell.startswith("_") or cell.startswith("@"):
                 linear_cell_map[(r, c)] = cell
 
     # Determine span starts
@@ -150,6 +169,13 @@ def render_monospace(doc: dict[str, Any], col_width: int = 8) -> str:
     else:
         sections.append("Linear weld length not recorded")
 
+    all_have_dims, total_area = _area_weld_tally(doc)
+    if all_have_dims:
+        units = doc.get("units", "")
+        sections.append(f"Total area weld: {total_area:g} {units}^2")
+    elif any(k.startswith("@") for v in _current_views(doc) for row in v["grid"] for k in row):
+        sections.append("Area weld dimensions not recorded")
+
     return "\n\n".join(sections)
 
 
@@ -258,6 +284,17 @@ def render_pdf(source_path: str | Path) -> Path:
     else:
         pdf.cell(0, 4, "Linear weld length not recorded", new_x="LMARGIN", new_y="NEXT")
 
+    # --- Area weld tally ---
+    all_have_dims, total_area = _area_weld_tally(doc)
+    has_area_welds = any(
+        k.startswith("@") for v in views for row in v["grid"] for k in row
+    )
+    if all_have_dims:
+        units = doc.get("units", "")
+        pdf.cell(0, 4, f"Total area weld: {total_area:g} {units}^2", new_x="LMARGIN", new_y="NEXT")
+    elif has_area_welds:
+        pdf.cell(0, 4, "Area weld dimensions not recorded", new_x="LMARGIN", new_y="NEXT")
+
     # --- Legend ---
     pdf.ln(4)
     if pdf.get_y() > pdf.h - 20:
@@ -267,6 +304,12 @@ def render_pdf(source_path: str | Path) -> Path:
     pdf.set_font("Courier", "", 8)
     pdf.cell(0, 4, "* = Point weld (discrete weld at a single location)", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 4, "_ = Linear weld (continuous weld spanning multiple cells)", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 4, "@ = Area weld (surface weld spanning multiple cells, e.g. cladding)", new_x="LMARGIN", new_y="NEXT")
+
+    # --- Not to scale notice ---
+    pdf.ln(3)
+    pdf.set_font("Courier", "B", 8)
+    pdf.cell(0, 4, "NOT TO SCALE", new_x="LMARGIN", new_y="NEXT")
 
     pdf.output(str(pdf_path))
     return pdf_path
