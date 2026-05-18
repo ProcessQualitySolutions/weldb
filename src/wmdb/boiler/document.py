@@ -11,6 +11,7 @@ from wmdb.exceptions import InvalidFileExtensionError
 
 FILE_EXTENSION = ".weldb"
 REQUIRED_FIELDS = {"panel_name", "tube_mtrl", "tube_od", "tube_wall", "units", "maps"}
+RESERVED_FIELDS = REQUIRED_FIELDS | {"weld_overrides"}
 
 
 def load(path: str | Path) -> dict[str, Any]:
@@ -51,8 +52,8 @@ def custom_field_setter(doc: dict[str, Any], field_name: str, value: Any) -> Non
 
     Raises ValueError if the field name collides with a required field.
     """
-    if field_name in REQUIRED_FIELDS:
+    if field_name in RESERVED_FIELDS:
         raise ValueError(
-            f"'{field_name}' is a required field — use direct assignment, not custom_field_setter"
+            f"'{field_name}' is a required or reserved field — use direct assignment, not custom_field_setter"
         )
     doc[field_name] = value

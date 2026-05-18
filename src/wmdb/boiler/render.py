@@ -5,8 +5,26 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from wmdb.boiler.document import FILE_EXTENSION, REQUIRED_FIELDS
-from wmdb.boiler.welds import Grid, _current_views
+from wmdb.boiler.document import FILE_EXTENSION, RESERVED_FIELDS
+from wmdb.boiler.welds import Grid, _current_views, resolve_weld_properties
+
+
+def _linear_weld_length_tally(doc: dict[str, Any]) -> tuple[bool, float]:
+    """Check if all linear welds have length and return the total.
+
+    Returns (all_have_length, total_length).
+    """
+    props = resolve_weld_properties(doc)
+    linear_props = {k: v for k, v in props.items() if k.startswith("_")}
+    if not linear_props:
+        return False, 0.0
+    total = 0.0
+    for wid, p in linear_props.items():
+        length = p.get("length")
+        if length is None:
+            return False, 0.0
+        total += float(length)
+    return True, total
 
 
 def _render_grid(grid: Grid, col_width: int = 8) -> str:
@@ -125,6 +143,13 @@ def render_monospace(doc: dict[str, Any], col_width: int = 8) -> str:
         if grid_text:
             sections.append(f"[ {view_name} ]\n{grid_text}")
 
+    all_have_length, total = _linear_weld_length_tally(doc)
+    if all_have_length:
+        units = doc.get("units", "")
+        sections.append(f"Total linear weld length: {total:g} {units}")
+    else:
+        sections.append("Linear weld length not recorded")
+
     return "\n\n".join(sections)
 
 
@@ -167,7 +192,7 @@ def render_pdf(source_path: str | Path) -> Path:
     pdf.cell(0, 5, "  |  ".join(meta_parts), new_x="LMARGIN", new_y="NEXT")
 
     # Custom fields
-    custom_keys = [k for k in doc if k not in REQUIRED_FIELDS]
+    custom_keys = [k for k in doc if k not in RESERVED_FIELDS]
     if custom_keys:
         custom_parts = [f"{k}: {doc[k]}" for k in custom_keys]
         pdf.cell(0, 5, "  |  ".join(custom_parts), new_x="LMARGIN", new_y="NEXT")
@@ -220,6 +245,18 @@ def render_pdf(source_path: str | Path) -> Path:
             for i, key in enumerate(["rev", "date", "updated_by", "comments"]):
                 pdf.cell(col_widths[i], 4, str(m.get(key, "")), border=1)
             pdf.ln()
+
+    # --- Linear weld length tally ---
+    pdf.ln(4)
+    if pdf.get_y() > pdf.h - 20:
+        pdf.add_page()
+    all_have_length, total = _linear_weld_length_tally(doc)
+    pdf.set_font("Courier", "", 8)
+    if all_have_length:
+        units = doc.get("units", "")
+        pdf.cell(0, 4, f"Total linear weld length: {total:g} {units}", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.cell(0, 4, "Linear weld length not recorded", new_x="LMARGIN", new_y="NEXT")
 
     # --- Legend ---
     pdf.ln(4)

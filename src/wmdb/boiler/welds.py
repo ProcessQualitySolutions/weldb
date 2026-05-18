@@ -123,3 +123,57 @@ def get_linear_welds(doc: dict[str, Any]) -> list[LinearWeld]:
                     groups.setdefault(cell, []).append((r, c))
 
     return [LinearWeld(weld_id=wid, cells=locs) for wid, locs in groups.items()]
+
+
+# Fields that are never inherited by welds.
+_NON_INHERITABLE = {"maps", "weld_overrides"}
+
+
+def resolve_weld_properties(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Resolve effective properties for each weld in the current map.
+
+    Returns a dict mapping weld_id (e.g., ``*250T``, ``_A``) to its resolved
+    properties dict.
+
+    Resolution order (most specific wins):
+
+    1. **Top-level fields** — all string/number values (the baseline).
+    2. **Type-level override** — ``point`` or ``linear`` key in ``weld_overrides``.
+    3. **Weld-specific override** — weld ID key in ``weld_overrides``.
+    """
+    # 1. Collect inheritable top-level fields (strings and numbers only).
+    baseline: dict[str, Any] = {}
+    for k, v in doc.items():
+        if k in _NON_INHERITABLE:
+            continue
+        if isinstance(v, (str, int, float)):
+            baseline[k] = v
+
+    overrides = doc.get("weld_overrides") or {}
+    type_point: dict[str, Any] = overrides.get("point") or {}
+    type_linear: dict[str, Any] = overrides.get("linear") or {}
+
+    # Gather all weld IDs from the current map.
+    views = _current_views(doc)
+    weld_ids: set[str] = set()
+    for view in views:
+        for row in view["grid"]:
+            for cell in row:
+                if cell.startswith("*") or cell.startswith("_"):
+                    weld_ids.add(cell)
+
+    result: dict[str, dict[str, Any]] = {}
+    for wid in weld_ids:
+        props = dict(baseline)
+        # 2. Type-level override.
+        if wid.startswith("*"):
+            props.update(type_point)
+        elif wid.startswith("_"):
+            props.update(type_linear)
+        # 3. Weld-specific override.
+        specific = overrides.get(wid)
+        if specific:
+            props.update(specific)
+        result[wid] = props
+
+    return result

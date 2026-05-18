@@ -23,6 +23,59 @@ A boiler project consists of multiple `.weldb` files in the same directory, one 
 
 Any additional top-level fields beyond the required set are permitted. These custom fields should be rendered on drawings but are not interpreted by the core library. Use `custom_field_getter` and `custom_field_setter` to access them programmatically.
 
+## Weld Property Inheritance
+
+All top-level fields whose values are strings or numbers are **inherited by every weld** upon export. This means every point weld and linear weld in the file implicitly carries the document's `tube_mtrl`, `tube_od`, `tube_wall`, `units`, and any custom string/number fields (e.g., `client`).
+
+Fields that are not strings or numbers (e.g., `maps`, `weld_overrides`) are never inherited.
+
+## Weld Overrides
+
+The optional `weld_overrides` top-level field allows overriding inherited properties for specific welds or weld types. This is useful when:
+
+- A **header** tube has a different OD or wall thickness than the surrounding tubes.
+- A **linear weld** needs a recorded `length`.
+- A group of welds (e.g., clips) has different material or sizing parameters.
+
+### Structure
+
+```yaml
+weld_overrides:
+  point:                  # applies to all point welds
+    tube_od: 2.0
+  linear:                 # applies to all linear welds
+    length: 8.5
+  "_CA":                  # applies to a specific weld
+    length: 6.0
+    tube_od: 1.5
+```
+
+The `weld_overrides` value is a mapping. Keys are one of:
+
+| Key        | Scope |
+|------------|-------|
+| `point`    | All point welds in the document. |
+| `linear`   | All linear welds in the document. |
+| Any weld ID (e.g., `*250T`, `_CA`) | A single weld. |
+
+Each value is a mapping of field names to override values.
+
+### Resolution Order
+
+When resolving the effective properties of a weld, the most specific source wins:
+
+1. **Top-level fields** — baseline inherited by all welds.
+2. **Type-level override** (`point` or `linear`) — overrides the baseline for all welds of that type.
+3. **Weld-specific override** (by weld ID) — overrides everything for that individual weld.
+
+### Standard Override Fields
+
+| Field    | Applies To    | Type   | Description |
+|----------|--------------|--------|-------------|
+| `length` | Linear welds | number | Total length of the linear weld, in the document's unit system. |
+
+Any field that appears as a top-level string or number field may also be used as an override (e.g., `tube_od`, `tube_wall`, `tube_mtrl`). Additional override-only fields like `length` are also permitted.
+
 ## Map Object
 
 The `maps` array contains one or more map objects. Each map represents a snapshot of the weld layout.
@@ -118,6 +171,13 @@ tube_od: 2.0
 tube_wall: 0.15
 units: in
 client: ACME Power        # custom field
+
+weld_overrides:
+  linear:
+    length: 36.0            # default length for all linear welds
+  _CA:
+    length: 6.0             # clip A is shorter
+    tube_od: 1.5            # clip welded to smaller tube
 
 maps:
   - rev: R0

@@ -59,6 +59,14 @@ A blank line or visual separator must appear between consecutive view grids to c
 
 Drawings **must not rely on color coding** to convey information. Color may be used as a supplementary visual aid (e.g., highlighting), but all information must be legible in monochrome.
 
+## Linear Weld Length Tally
+
+If **every** linear weld in the document has a resolved `length` value (via `weld_overrides`), the drawing must include a **linear weld length tally** showing the total length of all linear welds. The tally should appear near the legend or revision history.
+
+If **any** linear weld is missing a `length` value, the tally must not be shown. Instead, render the text: **"Linear weld length not recorded"**.
+
+This is all-or-nothing: either every linear weld has a length and the tally is displayed, or none is shown and the notice is displayed instead.
+
 ## Legend
 
 All rendered drawings **must include a legend** explaining the prefix characters. The legend must appear in the margins or footer of the drawing and contain at minimum:
