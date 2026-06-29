@@ -1,7 +1,7 @@
-"""Shared export utilities for writing weld data to JSON, CSV, and XLSX files.
+"""Export utilities for writing weld data to JSON, CSV, and XLSX files.
 
-These functions accept lists of PointWeld and/or LinearWeld from any standard
-(boiler, pipeline, iron) and serialize them to the requested format.
+These functions accept lists of PointWeld and/or LinearWeld and serialize
+them to the requested format.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from wmdb.types import LinearWeld, PointWeld
+from weldb.types import LinearWeld, PointWeld
 
 
 def _point_weld_to_dict(pw: PointWeld) -> dict[str, Any]:

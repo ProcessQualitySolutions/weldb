@@ -1,4 +1,4 @@
-"""Shared weld types used across all WMDB standards."""
+"""Weld types used across the weldb library."""
 
 from __future__ import annotations
 

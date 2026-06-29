@@ -1,10 +1,10 @@
 # Drawing Specification — Boiler (.weldb)
 
-The WMDB Boiler file format uses YAML to define 2D weld map layouts for boiler repair. Each file describes the spatial arrangement of welds on a component, serving as both a human-readable drawing spec and a machine-parseable weld database.
+The weldb file format uses YAML to define 2D weld map layouts for boiler repair. Each file describes the spatial arrangement of welds on a component, serving as both a human-readable drawing spec and a machine-parseable weld database.
 
 ## File Convention
 
-WMDB Boiler files use the `.weldb` extension and are valid YAML. The `panel_name` field **must** match the filename (excluding extension). For example, a file named `N5.weldb` must contain `panel_name: N5`.
+weldb files use the `.weldb` extension and are valid YAML. The `panel_name` field **must** match the filename (excluding extension). For example, a file named `N5.weldb` must contain `panel_name: N5`.
 
 A boiler project consists of multiple `.weldb` files in the same directory, one per panel. Weld numbers must be unique across all files in a project (see Weld Rules below).
 

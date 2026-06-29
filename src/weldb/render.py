@@ -1,12 +1,12 @@
-"""Rendering of WMDB Boiler documents (monospace and PDF)."""
+"""Rendering of weldb documents (monospace and PDF)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from wmdb.boiler.document import FILE_EXTENSION, RESERVED_FIELDS
-from wmdb.boiler.welds import Grid, _current_views, resolve_weld_properties
+from weldb.document import FILE_EXTENSION, RESERVED_FIELDS
+from weldb.welds import Grid, _current_views, resolve_weld_properties
 
 
 def _linear_weld_length_tally(doc: dict[str, Any]) -> tuple[bool, float]:
@@ -138,7 +138,7 @@ def _render_grid(grid: Grid, col_width: int = 8) -> str:
 
 
 def render_monospace(doc: dict[str, Any], col_width: int = 8) -> str:
-    """Render the current (latest) map of a WMDB Boiler document as monospace text.
+    """Render the current (latest) map of a weldb document as monospace text.
 
     Always operates on the last map in the maps array.
 
@@ -185,16 +185,16 @@ def render_pdf(source_path: str | Path) -> Path:
     The PDF has the same stem as the source file with a .pdf extension.
     Returns the path to the written PDF.
 
-    Requires the ``fpdf2`` package (install with ``pip install wmdb[pdf]``).
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
     """
     try:
         from fpdf import FPDF
     except ImportError as exc:
         raise ImportError(
-            "PDF rendering requires fpdf2. Install with: pip install wmdb[pdf]"
+            "PDF rendering requires fpdf2. Install with: pip install weldb[pdf]"
         ) from exc
 
-    from wmdb.boiler.document import load
+    from weldb.document import load
 
     source_path = Path(source_path)
     doc = load(source_path)

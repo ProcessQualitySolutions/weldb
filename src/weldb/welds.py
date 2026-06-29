@@ -1,15 +1,15 @@
-"""Weld extraction from WMDB Boiler documents."""
+"""Weld extraction from weldb documents."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from wmdb.exceptions import (
+from weldb.exceptions import (
     ConflictingWeldIdError,
     DuplicatePointWeldInViewError,
     EmbeddedSpecialCharError,
 )
-from wmdb.types import AreaWeld, LinearWeld, PointWeld
+from weldb.types import AreaWeld, LinearWeld, PointWeld
 
 WELD_PREFIXES = ("*", "_", "@")
 
@@ -56,7 +56,7 @@ def _validate_no_conflicting_ids(views: list[dict[str, Any]]) -> None:
 
 
 def get_point_welds(doc: dict[str, Any]) -> list[PointWeld]:
-    """Extract all point welds from the current (latest) map in a WMDB Boiler document.
+    """Extract all point welds from the current (latest) map in a weldb document.
 
     Always operates on the last map in the maps array. Historical maps
     never produce welds.
@@ -98,7 +98,7 @@ def get_point_welds(doc: dict[str, Any]) -> list[PointWeld]:
 
 
 def get_linear_welds(doc: dict[str, Any]) -> list[LinearWeld]:
-    """Extract all linear welds from the current (latest) map in a WMDB Boiler document.
+    """Extract all linear welds from the current (latest) map in a weldb document.
 
     Always operates on the last map in the maps array. Historical maps
     never produce welds.
@@ -126,7 +126,7 @@ def get_linear_welds(doc: dict[str, Any]) -> list[LinearWeld]:
 
 
 def get_area_welds(doc: dict[str, Any]) -> list[AreaWeld]:
-    """Extract all area welds from the current (latest) map in a WMDB Boiler document.
+    """Extract all area welds from the current (latest) map in a weldb document.
 
     Always operates on the last map in the maps array. Historical maps
     never produce welds.

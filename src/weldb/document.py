@@ -1,4 +1,4 @@
-"""WMDB Boiler document loading and custom field access."""
+"""weldb document loading and custom field access."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from wmdb.exceptions import InvalidFileExtensionError
+from weldb.exceptions import InvalidFileExtensionError
 
 FILE_EXTENSION = ".weldb"
 REQUIRED_FIELDS = {"panel_name", "tube_mtrl", "tube_od", "tube_wall", "units", "maps"}
@@ -28,7 +28,7 @@ def load(path: str | Path) -> dict[str, Any]:
 
 
 def save(doc: dict[str, Any], path: str | Path) -> None:
-    """Write a WMDB Boiler document dict back to a .weldb YAML file.
+    """Write a weldb document dict back to a .weldb YAML file.
 
     Raises InvalidFileExtensionError if the path does not end with .weldb.
     """
@@ -40,7 +40,7 @@ def save(doc: dict[str, Any], path: str | Path) -> None:
 
 
 def custom_field_getter(doc: dict[str, Any], field_name: str) -> Any:
-    """Get a custom (non-required) top-level field from a WMDB Boiler document.
+    """Get a custom (non-required) top-level field from a weldb document.
 
     Returns None if the field does not exist.
     """
@@ -48,7 +48,7 @@ def custom_field_getter(doc: dict[str, Any], field_name: str) -> Any:
 
 
 def custom_field_setter(doc: dict[str, Any], field_name: str, value: Any) -> None:
-    """Set a custom (non-required) top-level field on a WMDB Boiler document.
+    """Set a custom (non-required) top-level field on a weldb document.
 
     Raises ValueError if the field name collides with a required field.
     """

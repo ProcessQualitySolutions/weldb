@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wmdb.boiler.document import load
-from wmdb.boiler.welds import get_point_welds
-from wmdb.exceptions import DuplicateWeldAcrossFilesError
-from wmdb.types import PointWeld
+from weldb.document import load
+from weldb.welds import get_point_welds
+from weldb.exceptions import DuplicateWeldAcrossFilesError
+from weldb.types import PointWeld
 
 
 def build_weld_log(directory: str | Path) -> list[PointWeld]:

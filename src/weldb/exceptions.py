@@ -1,11 +1,11 @@
-"""WMDB exceptions."""
+"""weldb exceptions."""
 
 
-class WMDBError(Exception):
-    """Base exception for all WMDB errors."""
+class WeldbError(Exception):
+    """Base exception for all weldb errors."""
 
 
-class InvalidFileExtensionError(WMDBError):
+class InvalidFileExtensionError(WeldbError):
     """Raised when a file does not have the expected extension for its standard."""
 
     def __init__(self, path: str, expected: str):
@@ -16,7 +16,7 @@ class InvalidFileExtensionError(WMDBError):
         )
 
 
-class DuplicatePointWeldError(WMDBError):
+class DuplicatePointWeldError(WeldbError):
     """Raised when a point weld identifier appears more than once in a grid."""
 
     def __init__(self, weld_id: str, locations: list[tuple[int, int]]):
@@ -27,7 +27,7 @@ class DuplicatePointWeldError(WMDBError):
         )
 
 
-class EmbeddedSpecialCharError(WMDBError):
+class EmbeddedSpecialCharError(WeldbError):
     """Raised when *, _, or @ appears in a cell string but not as the first character."""
 
     def __init__(self, cell_value: str, row: int, col: int):
@@ -40,7 +40,7 @@ class EmbeddedSpecialCharError(WMDBError):
         )
 
 
-class DuplicatePointWeldInViewError(WMDBError):
+class DuplicatePointWeldInViewError(WeldbError):
     """Raised when a point weld appears more than once in a single view's grid."""
 
     def __init__(self, weld_id: str, view_name: str, locations: list[tuple[int, int]]):
@@ -53,7 +53,7 @@ class DuplicatePointWeldInViewError(WMDBError):
         )
 
 
-class ConflictingWeldIdError(WMDBError):
+class ConflictingWeldIdError(WeldbError):
     """Raised when two welds of different types share the same base ID."""
 
     def __init__(self, base_id: str, weld_a: str, weld_b: str):
@@ -66,7 +66,7 @@ class ConflictingWeldIdError(WMDBError):
         )
 
 
-class DuplicateWeldAcrossFilesError(WMDBError):
+class DuplicateWeldAcrossFilesError(WeldbError):
     """Raised when a point weld ID appears in more than one .weldb file in a project."""
 
     def __init__(self, weld_id: str, files: list[str]):

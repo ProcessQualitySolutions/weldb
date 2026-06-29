@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wmdb"
+name = "weldb"
 version = "0.1.0"
-description = "Weld Map Database — YAML-based 2D weld map specs for boiler (.weldb), pipeline (.weldp), and structural steel (.weldi)."
+description = "Weld Map Database — YAML-based 2D weld maps for boiler repair (.weldb) that double as the static weld record."
 requires-python = ">=3.10"
 license = "MIT"
 authors = [

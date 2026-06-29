@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -7,3 +8,16 @@ build/
 .venv/
 *.egg
 .ruff_cache/
+.pytest_cache/
+
+# Claude Code (local, machine-specific)
+.claude/settings.local.json
+
+# Editors
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

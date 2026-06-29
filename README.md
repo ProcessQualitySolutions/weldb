@@ -1,52 +1,55 @@
-# wmdb
+# weldb
 
-Weld Map Database. A multi-standard Python library for YAML-based 2D weld map drawings that double as the static weld record database.
+Weld Map Database. A Python library for YAML-based 2D weld map drawings that double as the static weld record database, designed for **boiler repair** projects.
 
-## Standards
+Boiler repair work usually lacks good engineering drawings — the panels to be replaced are typically chosen by the client, with engineering involved only in writing the repair spec. `weldb` fills that gap: a single `.weldb` file is both the 2D weld map drawing and the authoritative weld record for a panel.
 
-| Module          | Extension | Domain                      | Status      |
-|----------------|-----------|-----------------------------|-------------|
-| `wmdb.boiler`  | `.weldb`  | Boiler repair               | In progress |
-| `wmdb.pipeline`| `.weldp`  | Pipeline                    | Placeholder |
-| `wmdb.iron`    | `.weldi`  | Structural steel (iron)     | Placeholder |
+## File Format
+
+| Extension | Domain        |
+|-----------|---------------|
+| `.weldb`  | Boiler repair |
 
 ## Usage
 
 ```python
-import wmdb.boiler as boiler
-from wmdb.export import to_csv
+import weldb
 
-doc = boiler.load("north_wall_panel_3.weldb")
-welds = boiler.get_point_welds(doc)
-to_csv(welds, "welds.csv")
+doc = weldb.load("N5.weldb")
+welds = weldb.get_point_welds(doc)
+weldb.to_csv(welds, "welds.csv")
 ```
 
-## Shared Utilities
+## API
 
-- `wmdb.types` — `PointWeld`, `LinearWeld` dataclasses shared across all standards
-- `wmdb.export` — `to_json()`, `to_csv()`, `to_xlsx()` for any standard's weld data
-- `wmdb.exceptions` — shared error types
+- `weldb.load()` / `weldb.save()` — read/write `.weldb` YAML files
+- `weldb.get_point_welds()` / `weldb.get_linear_welds()` / `weldb.get_area_welds()` — extract welds from the current map
+- `weldb.resolve_weld_properties()` — resolve effective per-weld properties (with override inheritance)
+- `weldb.build_weld_log()` — combine point welds from every `.weldb` file in a directory into a project-wide log
+- `weldb.render_monospace()` / `weldb.render_pdf()` — render a panel to ASCII or PDF
+- `weldb.to_json()` / `weldb.to_csv()` / `weldb.to_xlsx()` — export weld data
+- `weldb.PointWeld` / `weldb.LinearWeld` / `weldb.AreaWeld` — weld dataclasses
+- `weldb.exceptions` — error types (base: `WeldbError`)
 
 ## PDF Rendering
 
-Each standard provides a `render_pdf()` function that writes a minimalistic PDF
-alongside the source YAML file. The PDF has the same filename stem with a `.pdf`
-extension. No revision number is embedded in the filename — the full revision
-history lives inside the YAML file itself.
+`render_pdf()` writes a minimalistic PDF alongside the source YAML file. The PDF has the
+same filename stem with a `.pdf` extension. No revision number is embedded in the filename —
+the full revision history lives inside the YAML file itself.
 
 ```python
-import wmdb.boiler as boiler
+import weldb
 
-boiler.render_pdf("north_wall_panel_3.weldb")
+weldb.render_pdf("north_wall_panel_3.weldb")
 # writes north_wall_panel_3.pdf in the same directory
 ```
 
-Requires the optional `fpdf2` dependency: `pip install wmdb[pdf]`
+Requires the optional `fpdf2` dependency: `pip install weldb[pdf]`
 
 ### PDF Freshness Rule
 
 A PDF is considered **current** when its modification time is newer than (or
-equal to) its sibling YAML file. If the YAML source (e.g., `.weldb`) is newer
+equal to) its sibling YAML file. If the YAML source (`.weldb`) is newer
 than its PDF, the PDF is **stale** and must be re-rendered. In short: the PDF
 should always be the younger sibling — if it's older than the YAML, re-render it.
 
@@ -57,10 +60,11 @@ pip install -e .          # core (YAML only)
 pip install -e ".[pdf]"   # with PDF rendering support
 ```
 
-## Status
+## Specs
 
-Early design phase — see the spec files for each standard:
-- [drawing_spec_boiler.md](drawing_spec_boiler.md) / [render_spec_boiler.md](render_spec_boiler.md)
-- [drawing_spec_pipeline.md](drawing_spec_pipeline.md) / [render_spec_pipeline.md](render_spec_pipeline.md)
-- [drawing_spec_iron.md](drawing_spec_iron.md) / [render_spec_iron.md](render_spec_iron.md)
-- [philosophy.md](philosophy.md)
+- [drawing_spec_boiler.md](drawing_spec_boiler.md) — `.weldb` file format
+- [render_spec_boiler.md](render_spec_boiler.md) — how weld maps are rendered
+- [panel_naming_convention.md](panel_naming_convention.md) — panel naming
+- [weld_naming_convention.md](weld_naming_convention.md) — recommended weld IDs
+- [project_spec.md](project_spec.md) — project structure and file lifecycle
+- [philosophy.md](philosophy.md) — design principles

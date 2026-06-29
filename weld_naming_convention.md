@@ -1,6 +1,6 @@
 # Weld Naming Convention — Boiler Panels
 
-This document describes the **recommended** naming convention for point welds in boiler panel repair projects. This convention is **not part of the WMDB standard** and is not enforced by the library. Any string that follows the cell type rules in `drawing_spec_boiler.md` is valid.
+This document describes the **recommended** naming convention for point welds in boiler panel repair projects. This convention is **not part of the weldb standard** and is not enforced by the library. Any string that follows the cell type rules in `drawing_spec_boiler.md` is valid.
 
 This convention is intended for simple boiler panel repairs and is also used by AI agents generating weld maps.
 

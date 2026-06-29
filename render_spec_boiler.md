@@ -1,6 +1,6 @@
 # Render Specification — Boiler (.weldb)
 
-This document defines how WMDB Boiler weld maps must be rendered visually, whether on the web, in a terminal, or in print. Implementations must follow these rules to ensure consistent, unambiguous weld map drawings.
+This document defines how weldb weld maps must be rendered visually, whether on the web, in a terminal, or in print. Implementations must follow these rules to ensure consistent, unambiguous weld map drawings.
 
 ## Prefix Characters
 
@@ -117,8 +117,8 @@ Drawings must include a revision history table rendered below (or adjacent to) t
 
 ## Custom Fields
 
-Any custom top-level fields present in the WMDB Boiler document should be rendered in a header area above the first view grid (or in a metadata block). The rendering of custom fields is left to the implementor's discretion, but they must be visible on the drawing.
+Any custom top-level fields present in the weldb document should be rendered in a header area above the first view grid (or in a metadata block). The rendering of custom fields is left to the implementor's discretion, but they must be visible on the drawing.
 
 ## Reference Implementation
 
-The `wmdb.boiler` Python module includes a `render_monospace` function that produces an ASCII-art rendering suitable for terminal output, and a `render_pdf` function that produces a minimalistic PDF. These serve as reference implementations of this spec.
+The `weldb` Python module includes a `render_monospace` function that produces an ASCII-art rendering suitable for terminal output, and a `render_pdf` function that produces a minimalistic PDF. These serve as reference implementations of this spec.

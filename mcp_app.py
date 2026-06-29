@@ -1,4 +1,4 @@
-"""WMDB MCP Server — AI-assisted weld map management.
+"""weldb MCP Server — AI-assisted weld map management.
 
 Provides tools for creating and inspecting boiler weld map panels,
 listing existing project files, and reading specification documents.
@@ -29,7 +29,7 @@ SPEC_DIR = PROJECT_DIR  # md files live at repo root
 EXAMPLES_DIR = PROJECT_DIR / "examples"
 
 mcp = FastMCP(
-    "wmdb",
+    "weldb",
     instructions=(
         "You are a weld map database assistant. You help users create and manage "
         "boiler panel weld maps (.weldb files). When the user asks to create a "

@@ -1,12 +1,12 @@
-# Project Specification — WMDB Usage Patterns
+# Project Specification — weldb Usage Patterns
 
-This document describes the intended usage patterns, file management rules, and organizational guidance for all three WMDB standards: Boiler (`.weldb`), Pipeline (`.weldp`), and Iron (`.weldi`).
+This document describes the intended usage patterns, file management rules, and organizational guidance for `weldb` boiler repair projects (`.weldb` files).
 
-## Purpose of WMDB
+## Purpose of weldb
 
-WMDB is a **document control source of truth** for weld identification and spatial layout. It is not a quality management program. YAML files define what welds exist and where they are located — nothing more. Mutable quality data such as welder IDs, weld dates, NDE results, VT results, and WPS references belong in a separate weld tracking or QC system.
+`weldb` is a **document control source of truth** for weld identification and spatial layout. It is not a quality management program. YAML files define what welds exist and where they are located — nothing more. Mutable quality data such as welder IDs, weld dates, NDE results, VT results, and WPS references belong in a separate weld tracking or QC system.
 
-WMDB files are **static weld logs**: a single, authoritative record of the welds in a design. They are not databases for tracking fabrication or inspection activity.
+`weldb` files are **static weld logs**: a single, authoritative record of the welds in a design. They are not databases for tracking fabrication or inspection activity.
 
 ## Change Tracking
 
@@ -20,8 +20,6 @@ PDF exports follow a strict naming convention:
 
 - The exported PDF has the **same base name** as the YAML source file, with a `.pdf` extension.
 - `N5.weldb` produces `N5.pdf`.
-- `MAIN-LINE.weldp` produces `MAIN-LINE.pdf`.
-- `PLATFORM-A.weldi` produces `PLATFORM-A.pdf`.
 
 ### Re-render Detection
 
@@ -29,21 +27,13 @@ Whether a PDF needs to be re-rendered can be determined by comparing the modific
 
 ## Weld ID Uniqueness
 
-Weld IDs **must be unique across an entire project**, not just within a single file. When combining welds from multiple files (e.g., multiple `.weldb` panel files in a boiler project), duplicate weld IDs across files are an error and must be rejected.
-
-This rule applies to all three standards:
-
-| Standard | Scope of uniqueness |
-|----------|-------------------|
-| Boiler (`.weldb`) | All `.weldb` files in the project directory. |
-| Pipeline (`.weldp`) | All `.weldp` files in the project directory. |
-| Iron (`.weldi`) | All `.weldi` files in the project directory. |
+Weld IDs **must be unique across an entire project**, not just within a single file. When combining welds from multiple `.weldb` panel files in a project, duplicate weld IDs across files are an error and must be rejected.
 
 After stripping the type prefix (`*`, `_`, `@`), weld base IDs must also not collide across weld types within a file. For example, `*T205` and `_T205` sharing the base ID `T205` is an error.
 
 ## Project Directory Structure
 
-A WMDB project directory contains the active YAML files at the top level, along with two special subdirectories for file lifecycle management:
+A `weldb` project directory contains the active `.weldb` files at the top level, along with two special subdirectories for file lifecycle management:
 
 ```
 project/
@@ -96,20 +86,20 @@ These files are always derived artifacts — the YAML files remain the source of
 
 ### Single Point of Responsibility
 
-It is **strongly recommended** that a single document control person or quality manager maintain all WMDB files for a project. Distributed editing across multiple authors without coordination risks duplicate weld IDs, inconsistent naming, and conflicting revisions.
+It is **strongly recommended** that a single document control person or quality manager maintain all `weldb` files for a project. Distributed editing across multiple authors without coordination risks duplicate weld IDs, inconsistent naming, and conflicting revisions.
 
 The designated maintainer should:
 
 - Own all YAML files for the project.
 - Be the sole author of new revisions (map entries).
-- Use the WMDB weld data to **feed a separate weld tracking system** for quality management, inspection scheduling, and compliance reporting.
+- Use the `weldb` weld data to **feed a separate weld tracking system** for quality management, inspection scheduling, and compliance reporting.
 
-### WMDB as an Upstream Source
+### weldb as an Upstream Source
 
-WMDB sits upstream of quality management workflows. The recommended data flow is:
+`weldb` sits upstream of quality management workflows. The recommended data flow is:
 
 ```
-WMDB YAML files (source of truth)
+weldb YAML files (source of truth)
     |
     +--> PDF drawings (visual reference)
     |
@@ -122,14 +112,12 @@ WMDB YAML files (source of truth)
             +--> Compliance reporting
 ```
 
-WMDB defines **what** is welded and **where**. Everything else — who welded it, when, how it was inspected, and whether it passed — belongs downstream.
+`weldb` defines **what** is welded and **where**. Everything else — who welded it, when, how it was inspected, and whether it passed — belongs downstream.
 
-## Standards Summary
+## Core Principles
 
-| Standard | Extension | Status | Description |
-|----------|-----------|--------|-------------|
-| Boiler | `.weldb` | Active | Boiler repair weld maps. Multi-view, multi-panel projects. |
-| Pipeline | `.weldp` | Placeholder | Pipeline construction and repair. Not yet defined. |
-| Iron | `.weldi` | Placeholder | Structural steel construction and repair. Not yet defined. |
-
-All three standards share the same core principles: YAML-based static weld logs, append-only revision history, PDF export by file name, project-wide weld ID uniqueness, and separation from quality management data.
+- YAML-based static weld logs.
+- Append-only revision history.
+- PDF export by file name.
+- Project-wide weld ID uniqueness.
+- Separation from quality management data.
