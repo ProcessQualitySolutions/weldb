@@ -1,7 +1,8 @@
 """weldb MCP Server — AI-assisted weld map management.
 
 Provides tools for creating and inspecting boiler weld map panels,
-listing existing project files, and reading specification documents.
+listing existing project files, reading specification documents, and
+browsing a catalog of worked example panels organized by arrangement.
 
 Run with:  python mcp_app.py
 Or:        mcp run mcp_app.py
@@ -20,6 +21,8 @@ from typing import Any
 import yaml
 from mcp.server.fastmcp import FastMCP
 
+from weldb import prefix_weld_id
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -37,7 +40,10 @@ mcp = FastMCP(
         "create_panel. Required: panel_name, tube_mtrl, tube_od, tube_wall, units, "
         "tube_start, tube_end. Use the panel_naming_convention and existing panels "
         "to determine the correct panel name. Always confirm parameters with the "
-        "user before creating."
+        "user before creating. To learn how to lay out a weld map for a particular "
+        "situation (adjacent, stacked, or overlapping panels, clips, ports, "
+        "dutchman repairs, etc.), browse the worked examples with list_examples, "
+        "list_example_files, and read_example_file before constructing the grid."
     ),
 )
 
@@ -73,6 +79,49 @@ def _archive_dir(directory: Path) -> Path:
 def _list_weldb_files(directory: Path) -> list[Path]:
     """List .weldb files in directory root (excludes quarantine/ and archive/)."""
     return sorted(directory.glob("*.weldb"))
+
+
+def _list_example_dirs() -> list[Path]:
+    """List the example scenario subfolders under examples/ (sorted)."""
+    if not EXAMPLES_DIR.is_dir():
+        return []
+    return sorted(p for p in EXAMPLES_DIR.iterdir() if p.is_dir())
+
+
+def _first_comment_line(path: Path) -> str:
+    """Return the first leading ``#`` comment line of a file (without the '#').
+
+    Used to surface a one-line description for an example .weldb file. Returns
+    an empty string if the file has no leading comment.
+    """
+    try:
+        with open(path) as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith("#"):
+                    return stripped.lstrip("#").strip()
+                return ""  # first non-blank line is not a comment
+    except OSError:
+        pass
+    return ""
+
+
+def _resolve_example_path(example: str, filename: str | None = None) -> Path | None:
+    """Resolve an example folder (and optional file) safely under examples/.
+
+    Returns the resolved path, or None if it escapes examples/ or does not exist.
+    """
+    base = EXAMPLES_DIR.resolve()
+    target = (EXAMPLES_DIR / example)
+    if filename is not None:
+        target = target / filename
+    resolved = target.resolve()
+    # Guard against path traversal (e.g., '../').
+    if resolved != base and base not in resolved.parents:
+        return None
+    return resolved if resolved.exists() else None
 
 
 def _next_panel_name(directory: Path, wall: str) -> str:
@@ -112,8 +161,8 @@ def _build_grid(tube_start: int, tube_end: int) -> list[list[str]]:
             mem_idx += 1
         else:
             # Tube column
-            top_row.append(f"*{tubes[tube_idx]}T")
-            bottom_row.append(f"*{tubes[tube_idx]}B")
+            top_row.append(f"*T{tubes[tube_idx]}")
+            bottom_row.append(f"*B{tubes[tube_idx]}")
             tube_idx += 1
 
     # Middle rows (4 empty rows)
@@ -183,8 +232,7 @@ def _regenerate_all_csv_files(directory: Path) -> str:
                             file_points[cell] = (r, c)
 
             for cell, (r, c) in file_points.items():
-                label = cell[1:]
-                prefixed_id = f"{panel_name}-{label}"
+                prefixed_id = prefix_weld_id(panel_name, cell)
                 if prefixed_id in seen_points:
                     raise ValueError(
                         f"Duplicate weld '{prefixed_id}' in "
@@ -210,7 +258,7 @@ def _regenerate_all_csv_files(directory: Path) -> str:
             for cell, count in linear_groups.items():
                 linear_rows.append({
                     "panel": panel_name,
-                    "weld_id": f"{panel_name}-{cell[1:]}",
+                    "weld_id": prefix_weld_id(panel_name, cell),
                     "cells": count,
                     "source": filepath.name,
                 })
@@ -226,7 +274,7 @@ def _regenerate_all_csv_files(directory: Path) -> str:
             for cell, count in area_groups.items():
                 area_rows.append({
                     "panel": panel_name,
-                    "weld_id": f"{panel_name}-{cell[1:]}",
+                    "weld_id": prefix_weld_id(panel_name, cell),
                     "cells": count,
                     "source": filepath.name,
                 })
@@ -484,7 +532,7 @@ def list_docs() -> str:
 def read_doc(filename: str) -> str:
     """Read the full content of a specification or documentation file.
 
-    Pass the filename (e.g., 'drawing_spec_boiler.md', 'philosophy.md',
+    Pass the filename (e.g., 'drawing_spec.md', 'philosophy.md',
     'panel_naming_convention.md'). Only .md files in the project root
     are accessible.
     """
@@ -500,6 +548,127 @@ def read_doc(filename: str) -> str:
         return "Access denied."
 
     return filepath.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Example catalog — reference .weldb files organized by panel arrangement
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_examples() -> str:
+    """List the example arrangements in the examples/ catalog.
+
+    Each subfolder demonstrates a common panel arrangement (e.g., single,
+    adjacent, stacked, overlapping) with one or more reference .weldb files.
+    Use these as worked examples when constructing a new weld map: pick the
+    arrangement that matches what the user is describing, then drill in with
+    list_example_files and read_example_file.
+    """
+    dirs = _list_example_dirs()
+    if not dirs:
+        return f"No example folders found in {EXAMPLES_DIR}"
+
+    lines = ["Example catalog (examples/):", ""]
+    for d in dirs:
+        weldb_files = _list_weldb_files(d)
+        summary = _first_comment_line(weldb_files[0]) if weldb_files else ""
+        header = f"  {d.name}/ ({len(weldb_files)} file{'s' if len(weldb_files) != 1 else ''})"
+        lines.append(f"{header}  {summary}".rstrip())
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def list_example_files(example: str) -> str:
+    """List the files in one example arrangement folder.
+
+    Pass the folder name returned by list_examples (e.g., 'adjacent').
+    Returns each .weldb file with its one-line description so you can decide
+    which to read in full.
+    """
+    folder = _resolve_example_path(example)
+    if folder is None or not folder.is_dir():
+        names = ", ".join(d.name for d in _list_example_dirs()) or "(none)"
+        return f"Example '{example}' not found. Available: {names}"
+
+    weldb_files = _list_weldb_files(folder)
+    other_files = sorted(
+        p for p in folder.iterdir() if p.is_file() and p.suffix != ".weldb"
+    )
+    if not weldb_files and not other_files:
+        return f"Example '{example}' is empty."
+
+    lines = [f"Files in examples/{example}/:", ""]
+    for f in weldb_files:
+        desc = _first_comment_line(f)
+        lines.append(f"  {f.name:16s} {desc}".rstrip())
+    for f in other_files:
+        lines.append(f"  {f.name}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def read_example_file(example: str, filename: str) -> str:
+    """Read the full text of a file in an example arrangement folder.
+
+    Pass the folder name (e.g., 'stacked') and the file name (e.g.,
+    'N5L.weldb'). Returns the raw file contents, including the leading
+    comments that explain how the arrangement is laid out — read these to
+    learn how to construct a similar weld map.
+    """
+    filepath = _resolve_example_path(example, filename)
+    if filepath is None or not filepath.is_file():
+        return (
+            f"File '{filename}' not found in example '{example}'. "
+            f"Use list_example_files('{example}') to see what's available."
+        )
+    return filepath.read_text()
+
+
+@mcp.tool()
+def render_example(example: str, filename: str | None = None) -> str:
+    """Render example .weldb file(s) to PDF.
+
+    Pass an example folder name and optionally a single .weldb file name.
+    If filename is omitted, every .weldb file in the folder is rendered.
+    Each PDF is written alongside its source with a .pdf extension.
+    Requires the optional fpdf2 dependency (pip install weldb[pdf]).
+    """
+    folder = _resolve_example_path(example)
+    if folder is None or not folder.is_dir():
+        names = ", ".join(d.name for d in _list_example_dirs()) or "(none)"
+        return f"Example '{example}' not found. Available: {names}"
+
+    if filename is not None:
+        target = _resolve_example_path(example, filename)
+        if target is None or not target.is_file():
+            return f"File '{filename}' not found in example '{example}'."
+        targets = [target]
+    else:
+        targets = _list_weldb_files(folder)
+        if not targets:
+            return f"Example '{example}' has no .weldb files to render."
+
+    try:
+        from weldb import render_pdf
+    except ImportError as exc:
+        return f"PDF rendering unavailable: {exc}"
+
+    rendered: list[str] = []
+    errors: list[str] = []
+    for src in targets:
+        try:
+            pdf_path = render_pdf(src)
+            rendered.append(str(pdf_path.relative_to(EXAMPLES_DIR)))
+        except Exception as exc:  # noqa: BLE001 — report per-file failures
+            errors.append(f"{src.name}: {exc}")
+
+    lines = [f"Rendered {len(rendered)} PDF(s) from examples/{example}/:"]
+    lines += [f"  {p}" for p in rendered]
+    if errors:
+        lines.append(f"Failed ({len(errors)}):")
+        lines += [f"  {e}" for e in errors]
+    return "\n".join(lines)
 
 
 @mcp.tool()

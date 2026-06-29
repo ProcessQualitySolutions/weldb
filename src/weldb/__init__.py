@@ -15,7 +15,7 @@ from weldb.document import custom_field_getter, custom_field_setter, load, save
 from weldb.export import to_csv, to_json, to_xlsx
 from weldb.render import render_monospace, render_pdf
 from weldb.models import AreaWeld, LinearWeld, PointWeld
-from weldb.weld_log import build_weld_log
+from weldb.weld_log import WELD_ID_SEPARATOR, build_weld_log, prefix_weld_id
 from weldb.welds import (
     get_area_welds,
     get_linear_welds,
@@ -37,6 +37,8 @@ __all__ = [
     "render_monospace",
     "render_pdf",
     "build_weld_log",
+    "prefix_weld_id",
+    "WELD_ID_SEPARATOR",
     "to_json",
     "to_csv",
     "to_xlsx",

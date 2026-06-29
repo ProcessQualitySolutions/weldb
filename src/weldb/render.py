@@ -145,7 +145,7 @@ def render_monospace(doc: dict[str, Any], col_width: int = 8) -> str:
     Each view is rendered as a separate grid with a label above it.
     Views are separated by a blank line.
 
-    Rules (per render_spec_boiler.md):
+    Rules (per render_spec.md):
     - Point welds (* prefix): rendered as-is with bordered cell.
     - Linear welds (_ prefix): rendered as-is. Cells sharing the same linear
       weld ID in the same row are visually merged (single label, no internal

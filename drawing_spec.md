@@ -1,12 +1,12 @@
-# Drawing Specification — Boiler (.weldb)
+# Drawing Specification (.weldb)
 
-The weldb file format uses YAML to define 2D weld map layouts for boiler repair. Each file describes the spatial arrangement of welds on a component, serving as both a human-readable drawing spec and a machine-parseable weld database.
+The weldb file format uses YAML to define 2D weld map layouts. Each file describes the spatial arrangement of welds on a component, serving as both a human-readable drawing spec and a machine-parseable weld database.
 
 ## File Convention
 
 weldb files use the `.weldb` extension and are valid YAML. The `panel_name` field **must** match the filename (excluding extension). For example, a file named `N5.weldb` must contain `panel_name: N5`.
 
-A boiler project consists of multiple `.weldb` files in the same directory, one per panel. Weld numbers must be unique across all files in a project (see Weld Rules below).
+A project consists of multiple `.weldb` files in the same directory, one per panel. Weld numbers must be unique across all files in a project (see Weld Rules below).
 
 ## Required Top-Level Fields
 
@@ -57,7 +57,7 @@ The `weld_overrides` value is a mapping. Keys are one of:
 | `point`    | All point welds in the document. |
 | `linear`   | All linear welds in the document. |
 | `area`     | All area welds in the document. |
-| Any weld ID (e.g., `*250T`, `_CA`, `@CL1`) | A single weld. |
+| Any weld ID (e.g., `*T250`, `_CA`, `@CL1`) | A single weld. |
 
 Each value is a mapping of field names to override values.
 
@@ -96,14 +96,14 @@ Views are **never modified in place**. When a user edits the weld map, the softw
 
 ## Views
 
-Each map contains one or more **views**. A view represents a specific perspective of the panel — for example, the hot side and cold side of a boiler panel. Each view contains its own grid.
+Each map contains one or more **views**. A view represents a specific perspective of the panel — for example, the hot side and cold side of a panel. Each view contains its own grid.
 
 | Field  | Type   | Description |
 |--------|--------|-------------|
 | `name` | string | View identifier (e.g., `hot_side`, `cold_side`). |
 | `grid` | array  | NxM list of lists of strings (see Grid Format). |
 
-Typical views for boiler panels:
+Typical views for panels:
 - **`hot_side`** — the fireside of the panel (furnace-facing).
 - **`cold_side`** — the casing side of the panel. Items like clips are typically only welded on this side.
 
@@ -123,7 +123,7 @@ The `grid` field is a rectangular list of lists of strings. Every inner list mus
 
 ### Trimming
 
-All cell strings must be trimmed of leading and trailing whitespace before interpretation. A cell containing `" 250T "` is equivalent to `"250T"`.
+All cell strings must be trimmed of leading and trailing whitespace before interpretation. A cell containing `" T250 "` is equivalent to `"T250"`.
 
 ### Weld Rules
 
@@ -142,9 +142,9 @@ The following naming conventions are **recommended but not required**. Any strin
 
 ### Tube Welds
 
-Point welds at tube locations. Use the tube number followed by `T` (top) or `B` (bottom):
-- `*250T` — tube 250, top weld
-- `*250B` — tube 250, bottom weld
+Point welds at tube locations. Use `T` (top) or `B` (bottom) followed by the tube number:
+- `*T250` — tube 250, top weld
+- `*B250` — tube 250, bottom weld
 
 ### Membrane Welds
 
@@ -200,13 +200,13 @@ maps:
     views:
       - name: hot_side
         grid:
-          - [_A, "*250T", _B, "*251T", _C, "*252T", _D]
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D]
           - [_A, "",      "",  "",     "",  "",      _D]
           - [_A, "",      "",  "",     "",  "",      _D]
           - [_A, "",      "",  "",     "",  "",      _D]
           - [_A, "",      "",  IR,     "",  "",      _D]
           - [_A, "",      "",  "",     "",  "",      _D]
-          - [_A, "*250B", _E, "*251B", _F, "*252B", _D]
+          - [_A, "*B250", _E, "*B251", _F, "*B252", _D]
       - name: cold_side
         grid:
           - ["", "", "", "", "", "", ""]

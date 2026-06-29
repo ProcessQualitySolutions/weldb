@@ -1,0 +1,45 @@
+# Antler panel — a conventional panel whose two OUTERMOST tubes are bent away.
+#
+# The middle tubes (251-255) are straight and conventional. The outer "antler"
+# tubes (250 and 256) bend out to the side near the top, like upside-down hockey
+# sticks: the shaft runs straight up the panel edge, then the blade kicks out
+# AWAY from the panel. This puts each antler's top weld:
+#   - out to the side, beyond the panel width (left of tube 250, right of 256), and
+#   - slightly LOWER than the straight tubes' top welds (one row down).
+# The antler welds are still top welds, so they keep the "T" prefix (*T250, *T256).
+#
+# Grid reading: straight top welds sit in row 0; the two antler top welds sit in
+# row 1 in the far outer columns. Bottom welds for every tube (including the
+# antlers' straight shafts) sit in the bottom row. _A and _F are the full-height
+# membrane webs joining the antler shafts to the panel; _B.._E and _G.._J are the
+# top/bottom peanut welds between the straight tubes.
+panel_name: N5
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+
+weld_overrides:
+  linear:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Antler panel — tubes 250 and 256 bent out, 251-255 straight.
+    views:
+      - name: hot_side
+        grid:
+          - ["",      "",      _A, "*T251", _B, "*T252", _C, "*T253", _D, "*T254", _E, "*T255", _F, "",      ""]
+          - ["*T250", "",      _A, "",      "", "",      "", "",      "", "",      "", "",      _F, "",      "*T256"]
+          - ["",      "",      _A, "",      "", "",      "", "",      "", "",      "", "",      _F, "",      ""]
+          - ["",      "",      _A, "",      "", "",      "", "",      "", "",      "", "",      _F, "",      ""]
+          - ["",      "*B250", _A, "*B251", _G, "*B252", _H, "*B253", _I, "*B254", _J, "*B255", _F, "*B256", ""]
+      - name: cold_side
+        grid:
+          - ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]

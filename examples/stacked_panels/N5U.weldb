@@ -1,0 +1,36 @@
+# Stacked arrangement (2 of 2) — panel N5U, the UPPER section.
+#
+# Same tubes as N5L (250-254), same width, directly above it. N5U's bottom
+# welds (*B2xx) meet N5L's top welds (*T2xx) at the seam. There is no overlap:
+# every elevation belongs to exactly one panel. Contrast with overlapping_panels,
+# where the two sections share a band of coverage.
+panel_name: N5U
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+
+weld_overrides:
+  linear:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Upper section of a stacked pair, tubes 250-254.
+    views:
+      - name: hot_side
+        grid:
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D, "*T253", _E, "*T254", _F]
+          - [_A, "",      "",  "",     "",  "",     "",  "",     "",  "",     _F]
+          - [_A, "",      "",  "",     "",  "",     "",  "",     "",  "",     _F]
+          - [_A, "",      "",  "",     "",  "",     "",  "",     "",  "",     _F]
+          - [_A, "*B250", _G, "*B251", _H, "*B252", _I, "*B253", _J, "*B254", _F]
+      - name: cold_side
+        grid:
+          - ["", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", ""]
+          - ["", "", "", "", "", "", "", "", "", "", ""]

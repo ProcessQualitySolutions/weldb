@@ -160,7 +160,7 @@ _NON_INHERITABLE = {"maps", "weld_overrides"}
 def resolve_weld_properties(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Resolve effective properties for each weld in the current map.
 
-    Returns a dict mapping weld_id (e.g., ``*250T``, ``_A``) to its resolved
+    Returns a dict mapping weld_id (e.g., ``*T250``, ``_A``) to its resolved
     properties dict.
 
     Resolution order (most specific wins):

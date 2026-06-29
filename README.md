@@ -60,10 +60,32 @@ pip install -e .          # core (YAML only)
 pip install -e ".[pdf]"   # with PDF rendering support
 ```
 
+## Example Catalog
+
+The `examples/` directory is a catalog of worked `.weldb` panels, organized into
+one folder per arrangement so an AI assistant can pick the closest match before
+constructing a new weld map. Each file opens with a comment block explaining how
+its grid is laid out.
+
+| Folder | Demonstrates |
+|--------|--------------|
+| `conventional_panel/` | Baseline layout: vertical tubes joined by membrane bars. |
+| `antler_panel/` | Conventional panel with the outermost tubes bent out (top welds offset to the side and lower). |
+| `adjacent_panels/` | Two panels side by side on the same wall (consecutive tubes). |
+| `stacked_panels/` | Two panels stacked vertically on the same tubes (clean seam). |
+| `overlapping_panels/` | Stacked panels whose vertical coverage overlaps (same width). |
+| `panel_with_clips/` | Cold-side attachment clips (`_CA`, `_CB`, ...). |
+| `port_panel/` | Plain-text port/opening labels (`IR`, `OBS`). |
+| `single_tube_dutchman/` | One tube's section replaced by a dutchman (`*B…DT`/`*B…DB`). |
+| `panel_with_repair_dutchman/` | A dutchman redlined in via an appended revision (append-only history). |
+
+The MCP server exposes these through `list_examples`, `list_example_files`,
+`read_example_file`, and `render_example` (renders an example to PDF).
+
 ## Specs
 
-- [drawing_spec_boiler.md](drawing_spec_boiler.md) — `.weldb` file format
-- [render_spec_boiler.md](render_spec_boiler.md) — how weld maps are rendered
+- [drawing_spec.md](drawing_spec.md) — `.weldb` file format
+- [render_spec.md](render_spec.md) — how weld maps are rendered
 - [panel_naming_convention.md](panel_naming_convention.md) — panel naming
 - [weld_naming_convention.md](weld_naming_convention.md) — recommended weld IDs
 - [project_spec.md](project_spec.md) — project structure and file lifecycle

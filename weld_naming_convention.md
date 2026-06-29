@@ -1,24 +1,29 @@
-# Weld Naming Convention — Boiler Panels
+# Weld Naming Convention — Panels
 
-This document describes the **recommended** naming convention for point welds in boiler panel repair projects. This convention is **not part of the weldb standard** and is not enforced by the library. Any string that follows the cell type rules in `drawing_spec_boiler.md` is valid.
+This document describes the **recommended** naming convention for point welds in panel repair projects. This convention is **not part of the weldb standard** and is not enforced by the library. Any string that follows the cell type rules in `drawing_spec.md` is valid.
 
-This convention is intended for simple boiler panel repairs and is also used by AI agents generating weld maps.
+This convention is intended for simple panel repairs and is also used by AI agents generating weld maps.
+
+## Scope — what belongs in a weld name
+
+A `.weldb` file records **what welds exist and where**. Only **physical changes to the panel** — such as installing a dutchman (replacement section) — are redlined into the file, because they change the set of welds.
+
+Weld **quality history** — repairs, reworks, and cutouts on an existing weld — is **not** tracked here. That belongs in the weld management / QC system. A weld that is repaired keeps the same weld ID in the weldb file; the repair is recorded downstream. Consequently, the only suffix in this convention is the dutchman suffix.
 
 ## Structure
 
 A weld name is built from the following components, concatenated without separators:
 
 ```
-<panel><side><tube>[<repair_code>][<dutchman_suffix>]
+<panel><side><tube>[<dutchman_suffix>]
 ```
 
-| Component          | Format    | Required | Description |
-|-------------------|-----------|----------|-------------|
-| Panel             | string    | Yes      | Panel identifier (e.g., `N5` for north panel 5). |
-| Side              | `T` or `B` | Yes    | `T` = top (weld at top of tube), `B` = bottom (weld at bottom of tube). |
-| Tube              | number    | Yes      | Tube number (e.g., `100`). |
-| Repair code       | see below | No       | Appended when the weld has been repaired, reworked, or cut out. |
-| Dutchman suffix   | see below | No       | Appended when a dutchman (replacement piece) is installed. |
+| Component        | Format     | Required | Description |
+|------------------|------------|----------|-------------|
+| Panel            | string     | Yes      | Panel identifier (e.g., `N5` for north panel 5). |
+| Side             | `T` or `B` | Yes      | `T` = top (weld at top of tube), `B` = bottom (weld at bottom of tube). |
+| Tube             | number     | Yes      | Tube number (e.g., `100`). |
+| Dutchman suffix  | see below  | No       | Appended when a dutchman (replacement piece) is installed. |
 
 ## Side Codes
 
@@ -27,19 +32,9 @@ A weld name is built from the following components, concatenated without separat
 | `T`  | Top — weld at the top of the tube. |
 | `B`  | Bottom — weld at the bottom of the tube. |
 
-## Repair Codes
-
-Repair codes are appended sequentially when work is performed on a weld.
-
-| Code   | Meaning |
-|--------|---------|
-| `R1`, `R2`, ... | Repair. Sequential repair attempts on the same weld. |
-| `RW1`, `RW2`, ... | Rework. When rework (not a full repair) is needed. |
-| `C1`, `C2`, ...  | Cutout. Quality-related cutout of the weld. |
-
 ## Dutchman Suffixes
 
-When a dutchman (replacement tube section) is installed, append a direction suffix indicating which end of the dutchman the weld is on.
+When a dutchman (replacement tube section) is installed, append a direction suffix indicating which end of the dutchman the weld is on. A dutchman creates two welds — one at each end of the replacement piece.
 
 ### Vertical tubes
 
@@ -63,18 +58,16 @@ Use cardinal directions when the tube orientation is flat or horizontal:
 
 All examples below are for **north panel 5, tube 100** (`N5`):
 
-| Weld Name      | Meaning |
-|---------------|---------|
-| `N5T100`       | Top weld on tube 100, original. |
-| `N5T100R1`     | Top weld on tube 100, first repair. |
-| `N5T100C2`     | Top weld on tube 100, second cutout. |
-| `N5B100C1R2`   | Bottom weld on tube 100, first cutout, second repair. |
-| `N5B100DT`     | Bottom weld on tube 100, dutchman top. |
-| `N5B100DBR1`   | Bottom weld on tube 100, dutchman bottom, first repair. |
+| Weld Name   | Meaning |
+|-------------|---------|
+| `N5T100`    | Top weld on tube 100. |
+| `N5B100`    | Bottom weld on tube 100. |
+| `N5B100DT`  | Bottom weld on tube 100, dutchman top. |
+| `N5B100DB`  | Bottom weld on tube 100, dutchman bottom. |
+| `N5B100DN`  | Bottom weld on tube 100, dutchman north (flat orientation). |
 
 ## Notes
 
-- This convention is designed for simple boiler panel repairs. Complex projects may need a different scheme.
-- The panel identifier is prepended by the `build_weld_log` utility when combining welds from multiple `.weldb` files, so individual weld map grids use the weld name **without** the panel prefix (e.g., `*T100R1` in the grid, which becomes `N5-T100R1` in the weld log).
-- Repair codes and dutchman suffixes can be combined (e.g., `DBR1` = dutchman bottom, first repair).
-- When multiple codes apply, the order is: side, tube, cutout/repair, dutchman, repair on dutchman.
+- This convention is designed for simple panel repairs. Complex projects may need a different scheme.
+- The panel identifier is prepended by the `build_weld_log` utility when combining welds from multiple `.weldb` files, joined with a period (`.`) separator. Individual weld map grids therefore use the weld name **without** the panel prefix (e.g., `*B100DT` in the grid, which becomes `N5.B100DT` in the weld log).
+- Repairs, reworks, and cutouts are **not** encoded in the weld name. A repaired weld keeps its original ID; the repair is tracked in the weld management system, not in the weldb file.

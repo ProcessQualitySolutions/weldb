@@ -9,6 +9,20 @@ from weldb.welds import get_point_welds
 from weldb.exceptions import DuplicateWeldAcrossFilesError
 from weldb.models import PointWeld
 
+#: Separator joining the panel name to the weld ID in a project weld log
+#: (e.g., panel ``N5`` + weld ``T250`` -> ``N5.T250``).
+WELD_ID_SEPARATOR = "."
+
+
+def prefix_weld_id(panel_name: str, weld_id: str) -> str:
+    """Join a panel name to a weld ID using the project separator.
+
+    The weld ID may still carry its grid type prefix (``*``/``_``/``@``);
+    it is stripped before joining. For example, ``("N5", "*T250")`` ->
+    ``"N5.T250"``.
+    """
+    return f"{panel_name}{WELD_ID_SEPARATOR}{weld_id.lstrip('*_@')}"
+
 
 def build_weld_log(directory: str | Path) -> list[PointWeld]:
     """Build a combined weld log from all .weldb files in a directory.
@@ -16,7 +30,7 @@ def build_weld_log(directory: str | Path) -> list[PointWeld]:
     For each file, extracts all point welds from the current map (deduplicating
     across views within each file). The panel name is prepended to each weld ID.
 
-    For example, panel "N5" with weld "*250T" becomes weld_id "N5-250T".
+    For example, panel "N5" with weld "*T250" becomes weld_id "N5.T250".
 
     Raises DuplicateWeldAcrossFilesError if the same prefixed weld ID appears
     in more than one file.
@@ -33,8 +47,7 @@ def build_weld_log(directory: str | Path) -> list[PointWeld]:
         point_welds = get_point_welds(doc)
 
         for pw in point_welds:
-            label = pw.weld_id.lstrip("*")
-            prefixed_id = f"{panel_name}-{label}"
+            prefixed_id = prefix_weld_id(panel_name, pw.weld_id)
 
             if prefixed_id in seen:
                 raise DuplicateWeldAcrossFilesError(

@@ -21,3 +21,7 @@ build/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Generated example PDFs (rendered on demand, keep the repo light)
+examples/**/*.pdf
+examples/*.pdf
