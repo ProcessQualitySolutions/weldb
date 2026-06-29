@@ -7,7 +7,7 @@ from pathlib import Path
 from weldb.document import load
 from weldb.welds import get_point_welds
 from weldb.exceptions import DuplicateWeldAcrossFilesError
-from weldb.types import PointWeld
+from weldb.models import PointWeld
 
 
 def build_weld_log(directory: str | Path) -> list[PointWeld]:

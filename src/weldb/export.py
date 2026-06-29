@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from weldb.types import LinearWeld, PointWeld
+from weldb.models import LinearWeld, PointWeld
 
 
 def _point_weld_to_dict(pw: PointWeld) -> dict[str, Any]:

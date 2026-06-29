@@ -9,7 +9,7 @@ from weldb.exceptions import (
     DuplicatePointWeldInViewError,
     EmbeddedSpecialCharError,
 )
-from weldb.types import AreaWeld, LinearWeld, PointWeld
+from weldb.models import AreaWeld, LinearWeld, PointWeld
 
 WELD_PREFIXES = ("*", "_", "@")
 

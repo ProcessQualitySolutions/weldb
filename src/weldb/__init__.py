@@ -14,7 +14,7 @@ Usage:
 from weldb.document import custom_field_getter, custom_field_setter, load, save
 from weldb.export import to_csv, to_json, to_xlsx
 from weldb.render import render_monospace, render_pdf
-from weldb.types import AreaWeld, LinearWeld, PointWeld
+from weldb.models import AreaWeld, LinearWeld, PointWeld
 from weldb.weld_log import build_weld_log
 from weldb.welds import (
     get_area_welds,
