@@ -11,7 +11,13 @@ Usage:
     weldb.render_pdf("N5.weldb")
 """
 
-from weldb.document import custom_field_getter, custom_field_setter, load, save
+from weldb.document import (
+    add_revision,
+    custom_field_getter,
+    custom_field_setter,
+    load,
+    save,
+)
 from weldb.export import to_csv, to_json, to_xlsx
 from weldb.render import render_monospace, render_pdf
 from weldb.models import AreaWeld, LinearWeld, PointWeld
@@ -28,6 +34,7 @@ __version__ = "0.1.0"
 __all__ = [
     "load",
     "save",
+    "add_revision",
     "custom_field_getter",
     "custom_field_setter",
     "get_point_welds",
