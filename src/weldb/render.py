@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -519,20 +520,54 @@ def _view_label(name: str) -> str:
     return f"{label} VIEW"
 
 
-def _draw_view(
-    pdf, view: dict[str, Any], x: float, y: float, w: float, h: float, color: bool = False
-) -> None:
-    """Draw a single view: single-line border, name in the upper-left, scaled grid."""
-    pdf.set_draw_color(0, 0, 0)
-    pdf.set_line_width(_LW_VIEW)
-    pdf.rect(x, y, w, h)
+def _sheet_metrics(pdf) -> tuple[float, float, float, float, float]:
+    """Return ``(m, iw, ih, views_h, title_y)`` for the current page.
 
+    ``m`` is the sheet margin, ``iw``/``ih`` the inner (inside-border) width and
+    height, ``views_h`` the height of the views region (top 80%), and
+    ``title_y`` the y of the views/title-block separator.
+    """
+    m = _SHEET_MARGIN
+    iw = pdf.w - 2 * m
+    ih = pdf.h - 2 * m
+    views_h = ih * _VIEWS_FRACTION
+    title_y = m + views_h
+    return m, iw, ih, views_h, title_y
+
+
+def _iter_view_boxes(pdf, views: list[dict[str, Any]]):
+    """Yield ``(view, vx, vy, vw, vh)`` for each view's box in the views region.
+
+    Shared by :func:`render_pdf` (which draws each box) and
+    :func:`weld_positions` (which measures cell geometry inside each box) so the
+    two never drift. Views are laid left-to-right with equal width.
+    """
+    m, iw, _ih, views_h, _title_y = _sheet_metrics(pdf)
+    n = len(views)
+    if n == 0:
+        return
+    g = _VIEW_GAP
+    view_w = (iw - g * (n + 1)) / n
+    view_h = views_h - 2 * g
+    for i, view in enumerate(views):
+        vx = m + g + i * (view_w + g)
+        vy = m + g
+        yield view, vx, vy, view_w, view_h
+
+
+def _grid_area(
+    pdf, view: dict[str, Any], x: float, y: float, w: float, h: float
+) -> tuple[float, float, float, float]:
+    """Compute the ``(gx, gy, gw, gh)`` rectangle the grid graphic occupies inside
+    a view box at ``(x, y, w, h)``.
+
+    Mirrors the layout math in :func:`_draw_view` (view-name height plus grid
+    padding, then the square rule) so the PDF drawer and the weld-position
+    extractor derive identical cell geometry from a single source of truth.
+    """
     name = _view_label(view["name"])
     name_size = _fit_font_size(pdf, name, w - 2 * _VIEW_PAD, 4.5, style="B", start=9.0)
     name_h = name_size * _PT_TO_MM
-    pdf.set_font("Helvetica", "B", name_size)
-    pdf.set_xy(x + _VIEW_PAD, y + _VIEW_PAD)
-    pdf.cell(w - 2 * _VIEW_PAD, name_h, _latin1(name))
 
     grid = view["grid"]
     cols = max((len(r) for r in grid), default=0)
@@ -548,7 +583,26 @@ def _draw_view(
     if gw > gh and cols <= 40:
         gx += (gw - gh) / 2
         gw = gh
-    _draw_grid_vector(pdf, grid, gx, gy, gw, gh, color=color)
+    return gx, gy, gw, gh
+
+
+def _draw_view(
+    pdf, view: dict[str, Any], x: float, y: float, w: float, h: float, color: bool = False
+) -> None:
+    """Draw a single view: single-line border, name in the upper-left, scaled grid."""
+    pdf.set_draw_color(0, 0, 0)
+    pdf.set_line_width(_LW_VIEW)
+    pdf.rect(x, y, w, h)
+
+    name = _view_label(view["name"])
+    name_size = _fit_font_size(pdf, name, w - 2 * _VIEW_PAD, 4.5, style="B", start=9.0)
+    name_h = name_size * _PT_TO_MM
+    pdf.set_font("Helvetica", "B", name_size)
+    pdf.set_xy(x + _VIEW_PAD, y + _VIEW_PAD)
+    pdf.cell(w - 2 * _VIEW_PAD, name_h, _latin1(name))
+
+    gx, gy, gw, gh = _grid_area(pdf, view, x, y, w, h)
+    _draw_grid_vector(pdf, view["grid"], gx, gy, gw, gh, color=color)
 
 
 def _field_label(key: str) -> str:
@@ -755,11 +809,16 @@ def _display_views(doc: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-def render_pdf(source_path: str | Path, color: bool = False) -> Path:
-    """Render a .weldb file to a single-sheet vector PDF in the same directory.
+def render_pdf(
+    source_path: str | Path, color: bool = False, output_path: str | Path | None = None
+) -> Path:
+    """Render a .weldb file to a single-sheet vector PDF.
 
-    The PDF has the same stem as the source file with a .pdf extension and is
-    laid out as an engineering drawing (see render_spec.md):
+    By default the PDF is written next to the source with the same stem and a
+    ``.pdf`` extension. Pass ``output_path`` to write the PDF somewhere else
+    instead — e.g. so a caller rendering a read-only reference file does not
+    write back into that file's directory. It is laid out as an engineering
+    drawing (see render_spec.md):
 
     - The whole sheet has a double-width border.
     - The top 80% holds the views, drawn left to right with equal width, each in
@@ -792,45 +851,346 @@ def render_pdf(source_path: str | Path, color: bool = False) -> Path:
 
     source_path = Path(source_path)
     doc = load(source_path)
-    pdf_path = source_path.with_suffix(".pdf")
+    pdf_path = Path(output_path) if output_path is not None else source_path.with_suffix(".pdf")
 
     pdf = FPDF(orientation="L", unit="mm", format="letter")
     pdf.set_auto_page_break(auto=False)
     pdf.set_margins(0, 0, 0)
     pdf.add_page()
 
-    pw, ph = pdf.w, pdf.h
-    m = _SHEET_MARGIN
-    iw = pw - 2 * m
-    ih = ph - 2 * m
+    m, iw, ih, views_h, title_y = _sheet_metrics(pdf)
+    title_h = ih - views_h
 
     # Outer double-width border.
     pdf.set_draw_color(0, 0, 0)
     pdf.set_line_width(_LW_DOUBLE)
     pdf.rect(m, m, iw, ih)
 
-    views_h = ih * _VIEWS_FRACTION
-    title_y = m + views_h
-    title_h = ih - views_h
-
     # Double-width separator between views and title block.
     pdf.set_line_width(_LW_DOUBLE)
     pdf.line(m, title_y, m + iw, title_y)
 
     # --- Views region (top 80%) ---
-    views = _display_views(doc)
-    n = len(views)
-    if n > 0:
-        g = _VIEW_GAP
-        view_w = (iw - g * (n + 1)) / n
-        view_h = views_h - 2 * g
-        for i, view in enumerate(views):
-            vx = m + g + i * (view_w + g)
-            vy = m + g
-            _draw_view(pdf, view, vx, vy, view_w, view_h, color=color)
+    for view, vx, vy, vw, vh in _iter_view_boxes(pdf, _display_views(doc)):
+        _draw_view(pdf, view, vx, vy, vw, vh, color=color)
 
     # --- Title block (bottom 20%) ---
     _draw_title_block(pdf, doc, m, title_y, iw, title_h, color=color)
 
     pdf.output(str(pdf_path))
     return pdf_path
+
+
+# Revision-history sheet: column widths as fractions of the inner width.
+_REV_HIST_REV_FRAC = 0.08
+_REV_HIST_DATE_FRAC = 0.14
+_REV_HIST_BY_FRAC = 0.22
+# The remaining width is the Comments column.
+
+
+def render_revision_history_pdf(
+    source_path: str | Path, output_path: str | Path | None = None
+) -> Path:
+    """Render a panel's full revision history to a standalone PDF.
+
+    Lists **every** revision in the document's ``maps`` array in a bordered table
+    with the columns from render_spec.md — Rev, Date, Updated By, Comments —
+    ordered oldest to newest (top to bottom). Unlike the abbreviated revision
+    block on the main drawing (:func:`render_pdf`, capped to what fits), this is
+    the complete, unabridged history and paginates across as many landscape
+    sheets as the revisions need. Comments wrap and are never truncated.
+
+    By default the PDF is written next to the source as ``<stem>_revisions.pdf``;
+    pass ``output_path`` to write it elsewhere (e.g. into the user's project
+    folder rather than back into a read-only reference directory).
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
+    try:
+        from fpdf import FPDF
+    except ImportError as exc:
+        raise ImportError(
+            "PDF rendering requires fpdf2. Install with: pip install weldb[pdf]"
+        ) from exc
+
+    from weldb.document import load
+
+    source_path = Path(source_path)
+    doc = load(source_path)
+    pdf_path = (
+        Path(output_path)
+        if output_path is not None
+        else source_path.with_name(f"{source_path.stem}_revisions.pdf")
+    )
+
+    maps = doc.get("maps", [])
+    panel = str(doc.get("panel_name", source_path.stem))
+
+    pdf = FPDF(orientation="L", unit="mm", format="letter")
+    pdf.set_auto_page_break(auto=False)
+    pdf.set_margins(0, 0, 0)
+
+    m = _SHEET_MARGIN
+    iw = pdf.w - 2 * m
+    ih = pdf.h - 2 * m
+    pad = 2.0
+    line_h = 4.0
+    row_gap = 1.4
+    header_h = 16.0
+    bottom = m + ih - 2.0
+
+    rev_w = iw * _REV_HIST_REV_FRAC
+    date_w = iw * _REV_HIST_DATE_FRAC
+    by_w = iw * _REV_HIST_BY_FRAC
+    com_w = iw - rev_w - date_w - by_w
+    x_rev = m
+    x_date = x_rev + rev_w
+    x_by = x_date + date_w
+    x_com = x_by + by_w
+
+    table_top = 0.0  # y where the column dividers begin on the current page
+
+    def start_page() -> float:
+        """Begin a page: border, header, column-header row. Returns first row y."""
+        nonlocal table_top
+        pdf.add_page()
+        pdf.set_draw_color(0, 0, 0)
+        pdf.set_line_width(_LW_DOUBLE)
+        pdf.rect(m, m, iw, ih)
+
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.set_xy(x_rev + pad, m + 2.0)
+        pdf.cell(iw - 2 * pad, 7.0, _latin1(f"{panel}  -  REVISION HISTORY"))
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_xy(x_rev + pad, m + 9.5)
+        pdf.cell(iw - 2 * pad, 4.0, _latin1(f"{len(maps)} revision(s)"))
+
+        y_head = m + header_h
+        table_top = y_head
+        pdf.set_line_width(_LW_VIEW)
+        pdf.line(m, y_head, m + iw, y_head)
+
+        pdf.set_font("Helvetica", "B", 8)
+        hy = y_head + 1.5
+        for x, w, title in (
+            (x_rev, rev_w, "REV"),
+            (x_date, date_w, "DATE"),
+            (x_by, by_w, "UPDATED BY"),
+            (x_com, com_w, "COMMENTS"),
+        ):
+            pdf.set_xy(x + pad, hy)
+            pdf.cell(w - pad, line_h, title)
+        header_row_bottom = hy + line_h + 1.0
+        pdf.set_line_width(_LW_THIN)
+        pdf.line(m, header_row_bottom, m + iw, header_row_bottom)
+        return header_row_bottom + 1.0
+
+    def close_table(last_y: float) -> None:
+        """Draw the vertical column dividers down to ``last_y`` for this page."""
+        pdf.set_line_width(_LW_THIN)
+        for xd in (x_date, x_by, x_com):
+            pdf.line(xd, table_top, xd, last_y)
+
+    row_top = start_page()
+
+    if not maps:
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.set_xy(x_rev + pad, row_top)
+        pdf.cell(iw - 2 * pad, line_h, "(no revisions recorded)")
+        close_table(row_top + line_h)
+        pdf.output(str(pdf_path))
+        return pdf_path
+
+    for mp in maps:  # oldest -> newest, top to bottom
+        pdf.set_font("Helvetica", "", 8)
+        comment_lines = _wrap_text(pdf, str(mp.get("comments", "")), com_w - 2 * pad)
+        row_h = len(comment_lines) * line_h + row_gap
+
+        if row_top + row_h > bottom:
+            close_table(row_top)
+            row_top = start_page()
+            pdf.set_font("Helvetica", "", 8)
+
+        pdf.set_xy(x_rev + pad, row_top)
+        pdf.cell(rev_w - pad, line_h, _latin1(str(mp.get("rev", ""))))
+        pdf.set_xy(x_date + pad, row_top)
+        pdf.cell(date_w - pad, line_h, _latin1(str(mp.get("date", ""))))
+        pdf.set_xy(x_by + pad, row_top)
+        pdf.cell(by_w - pad, line_h, _truncate(pdf, str(mp.get("updated_by", "")), by_w - 2 * pad))
+        cy = row_top
+        for cline in comment_lines:
+            pdf.set_xy(x_com + pad, cy)
+            pdf.cell(com_w - pad, line_h, cline)
+            cy += line_h
+
+        row_bottom = row_top + row_h
+        pdf.set_line_width(_LW_THIN)
+        pdf.line(m, row_bottom - row_gap / 2, m + iw, row_bottom - row_gap / 2)
+        row_top = row_bottom
+
+    close_table(row_top)
+    pdf.output(str(pdf_path))
+    return pdf_path
+
+
+_TYPE_BY_PREFIX = {"*": "point", "_": "linear", "@": "area"}
+
+
+def weld_positions(source_path: str | Path, *, include_text: bool = False) -> dict[str, Any]:
+    """Compute the on-sheet bounding box of every weld region in a .weldb file.
+
+    Returns the coordinates each weld *would occupy on the rendered PDF*,
+    derived from the exact same layout math as :func:`render_pdf` (shared via
+    ``_iter_view_boxes`` and ``_grid_area``) — so the boxes line up with the
+    drawing without having to parse the PDF back out.
+
+    Coordinates use the PDF page's own space: millimetres, **origin at the
+    top-left corner, y increasing downward** (the fpdf2 convention, which also
+    matches image/canvas pixel space, so mapping onto a canvas is a plain
+    proportional scale with no vertical flip).
+
+    Welds are reported **per drawn region**: a single weld ID that renders as two
+    separate shapes (e.g. a membrane run interrupted by a point weld) yields two
+    entries, each with its own box. Views are the *displayed* views — an empty
+    back/cold view is reported using its mirrored layout, exactly as drawn.
+
+    Returns a dict::
+
+        {
+          "panel_name": "N5",
+          "page_width": 279.4, "page_height": 215.9, "units": "mm",
+          "origin": "top-left",
+          "views": [
+            {"name": "hot_side", "welds": [
+              {"id": "*T250", "type": "point",
+               "x0": .., "y0": .., "x1": .., "y1": ..},  # upper-left, lower-right
+              ...
+            ]},
+            ...
+          ]
+        }
+
+    ``x0, y0`` is the upper-left corner and ``x1, y1`` the lower-right corner of
+    the region's bounding box. By default only weld cells (``*``, ``_``, ``@``)
+    are reported; pass ``include_text=True`` to also include plain-text regions
+    (tube numbers, annotations). Empty regions are never reported.
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
+    try:
+        from fpdf import FPDF
+    except ImportError as exc:
+        raise ImportError(
+            "Weld position extraction requires fpdf2. Install with: pip install weldb[pdf]"
+        ) from exc
+
+    from weldb.document import load
+
+    source_path = Path(source_path)
+    doc = load(source_path)
+
+    pdf = FPDF(orientation="L", unit="mm", format="letter")
+    pdf.set_auto_page_break(auto=False)
+    pdf.set_margins(0, 0, 0)
+    pdf.add_page()
+
+    views_out: list[dict[str, Any]] = []
+    for view, vx, vy, vw, vh in _iter_view_boxes(pdf, _display_views(doc)):
+        grid = view["grid"]
+        rows = len(grid)
+        cols = max((len(r) for r in grid), default=0)
+        welds: list[dict[str, Any]] = []
+        if rows and cols:
+            gx, gy, gw, gh = _grid_area(pdf, view, vx, vy, vw, vh)
+            colx = _column_edges(grid, gx, gw)
+            rowh = gh / rows
+            for label, cells in _cell_regions(grid):
+                if not label or (label[0] not in _TYPE_BY_PREFIX and not include_text):
+                    continue
+                x0 = min(colx[c] for _, c in cells)
+                x1 = max(colx[c + 1] for _, c in cells)
+                y0 = min(gy + r * rowh for r, _ in cells)
+                y1 = max(gy + (r + 1) * rowh for r, _ in cells)
+                welds.append({
+                    "id": label,
+                    "type": _TYPE_BY_PREFIX.get(label[0], "text"),
+                    "x0": round(x0, 3),
+                    "y0": round(y0, 3),
+                    "x1": round(x1, 3),
+                    "y1": round(y1, 3),
+                })
+        # Deterministic order: top-to-bottom, then left-to-right, then id.
+        welds.sort(key=lambda w: (w["y0"], w["x0"], w["id"]))
+        views_out.append({"name": view["name"], "welds": welds})
+
+    return {
+        "panel_name": doc.get("panel_name"),
+        "page_width": round(pdf.w, 3),
+        "page_height": round(pdf.h, 3),
+        "units": "mm",
+        "origin": "top-left",
+        "views": views_out,
+    }
+
+
+def _apply_canvas_pixels(data: dict[str, Any], canvas_w: float, canvas_h: float) -> None:
+    """Add integer pixel corners (``px0..py1``) to every weld, scaled to a canvas.
+
+    Scales the millimetre boxes proportionally onto a ``canvas_w`` x ``canvas_h``
+    pixel canvas — ``px = x_mm / page_width * canvas_w`` and ``py = y_mm /
+    page_height * canvas_h``. No vertical flip: both spaces put the origin at the
+    top-left. Records ``canvas_w`` / ``canvas_h`` on ``data``. Mutates in place.
+    """
+    if canvas_w <= 0 or canvas_h <= 0:
+        raise ValueError("canvas_w and canvas_h must be positive")
+    sx = canvas_w / data["page_width"]
+    sy = canvas_h / data["page_height"]
+    data["canvas_w"] = canvas_w
+    data["canvas_h"] = canvas_h
+    for view in data["views"]:
+        for weld in view["welds"]:
+            weld["px0"] = round(weld["x0"] * sx)
+            weld["py0"] = round(weld["y0"] * sy)
+            weld["px1"] = round(weld["x1"] * sx)
+            weld["py1"] = round(weld["y1"] * sy)
+
+
+def write_weld_positions(
+    source_path: str | Path,
+    output_path: str | Path | None = None,
+    *,
+    include_text: bool = False,
+    canvas_w: float | None = None,
+    canvas_h: float | None = None,
+) -> Path:
+    """Write a .weldb file's weld positions to a JSON file and return its path.
+
+    Mirrors :func:`render_pdf`: by default the JSON is written next to the source
+    as ``<stem>_weld_positions.json``. Pass ``output_path`` to write it elsewhere
+    (e.g. into the user's project folder rather than back into a read-only
+    reference directory).
+
+    The JSON holds the same structure :func:`weld_positions` returns
+    (millimetres, top-left origin — see there for the shape and the per-region
+    semantics). When **both** ``canvas_w`` and ``canvas_h`` are given, each weld
+    additionally carries integer pixel corners (``px0, py0, px1, py1``) scaled to
+    that canvas, and the canvas size is recorded; omit them to keep the file
+    device-independent (a consumer can scale from the page dimensions itself).
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
+    source_path = Path(source_path)
+    data = weld_positions(source_path, include_text=include_text)
+
+    if (canvas_w is None) != (canvas_h is None):
+        raise ValueError("Provide both canvas_w and canvas_h, or neither")
+    if canvas_w is not None and canvas_h is not None:
+        _apply_canvas_pixels(data, canvas_w, canvas_h)
+
+    out = (
+        Path(output_path)
+        if output_path is not None
+        else source_path.with_name(f"{source_path.stem}_weld_positions.json")
+    )
+    out.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return out

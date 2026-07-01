@@ -18,32 +18,57 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
 from mcp.server.fastmcp import FastMCP
 
-from weldb import prefix_weld_id
+from weldb import load, prefix_weld_id, save
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-PROJECT_DIR = Path.cwd()
-SPEC_DIR = PROJECT_DIR  # md files live at repo root
-EXAMPLES_DIR = PROJECT_DIR / "examples"
+# Code-bundled assets (ship with this server, independent of the user's project):
+#   SPEC_DIR     — the standards / specification .md files (drawing_spec, naming
+#                  conventions, philosophy) served by list_docs / read_doc.
+#   EXAMPLES_DIR — the read-only worked-example catalog browsed by the list_example*
+#                  / read_example_file / render_example tools.
+# Both are anchored to this file's location, NOT the working directory, so they
+# resolve correctly no matter where the server is launched from.
+CODE_DIR = Path(__file__).resolve().parent
+SPEC_DIR = CODE_DIR
+EXAMPLES_DIR = CODE_DIR / "examples"
+
+# The AGENT'S PROJECT DIRECTORY: where the .weldb panel files for the current job
+# live. This is the user's project folder — NOT the weldb code directory and NOT
+# the bundled examples catalog. Every panel tool takes an explicit `project_path`;
+# when omitted it falls back to the current working directory, but agents are
+# expected to pass the project folder explicitly.
+DEFAULT_PROJECT_DIR = Path.cwd()
 
 mcp = FastMCP(
     "weldb",
     instructions=(
         "You are a weld map database assistant. You help users create and manage "
-        "boiler panel weld maps (.weldb files). When the user asks to create a "
-        "panel, gather the required information through conversation before calling "
-        "create_panel. Required: panel_name, tube_mtrl, tube_od, tube_wall, units, "
-        "tube_start, tube_end. Use the panel_naming_convention and existing panels "
-        "to determine the correct panel name. Always confirm parameters with the "
-        "user before creating. To learn how to lay out a weld map for a particular "
-        "situation (adjacent, stacked, or overlapping panels, clips, ports, "
-        "dutchman repairs, etc.), browse the worked examples with list_examples, "
-        "list_example_files, and read_example_file before constructing the grid."
+        "boiler panel weld maps (.weldb files).\n\n"
+        "PROJECT PATH — IMPORTANT: The weld map panels you create and manage live "
+        "in the user's own project folder. Every panel tool takes a `project_path` "
+        "argument, and you should pass the path to the user's project directory "
+        "(the folder holding their .weldb files for this job). This is NOT the "
+        "weldb code/installation directory, and NOT the bundled examples catalog. "
+        "If you do not yet know the user's project folder, ask for it before "
+        "creating, reading, or listing panels. Omitting project_path falls back to "
+        "the server's current working directory, which is usually not what you want.\n\n"
+        "The bundled specification documents (list_docs / read_doc) and the worked "
+        "example catalog (list_examples / list_example_files / read_example_file / "
+        "render_example) are read-only references that ship with the server — they "
+        "are separate from the user's project and take no project_path.\n\n"
+        "When the user asks to create a panel, gather the required information "
+        "through conversation before calling create_panel. Required: panel_name, "
+        "tube_mtrl, tube_od, tube_wall, units, elevation, tube_start, tube_end. Use "
+        "the panel_naming_convention and existing panels to determine the correct "
+        "panel name. Always confirm parameters with the user before creating. To "
+        "learn how to lay out a weld map for a particular situation (adjacent, "
+        "stacked, or overlapping panels, clips, ports, dutchman repairs, etc.), "
+        "browse the worked examples before constructing the grid."
     ),
 )
 
@@ -59,13 +84,60 @@ WALL_CODES = [
 ]
 _WALL_RE = re.compile(r"^(" + "|".join(WALL_CODES) + r")(\d+)$")
 
+# Allowed unit systems (see drawing_spec.md).
+VALID_UNITS = ["mm", "ft_in", "in", "dec_in", "dec_ft"]
+
 
 def _find_project_dir(path: str | None) -> Path:
-    """Resolve the project directory from an optional path argument."""
+    """Resolve the user's project directory from an optional path argument.
+
+    When ``path`` is given it is used (its parent if it points at a file); when
+    omitted it falls back to :data:`DEFAULT_PROJECT_DIR` (the current working
+    directory). It deliberately does NOT default to the bundled examples catalog
+    — panels live in the agent's project folder, which should be passed
+    explicitly as ``project_path``.
+    """
     if path:
         p = Path(path)
         return p if p.is_dir() else p.parent
-    return EXAMPLES_DIR
+    return DEFAULT_PROJECT_DIR
+
+
+def _resolve_panel_path(base_dir: Path, panel_name: str) -> Path | None:
+    """Resolve ``<base_dir>/<panel_name>.weldb``, guarding against path traversal.
+
+    ``panel_name`` must be a bare file stem: any value containing a path
+    separator, a parent reference (``..``), or an absolute/drive component is
+    rejected (returns ``None``) so a caller-supplied name can never escape
+    ``base_dir``. The returned path is not required to exist.
+    """
+    if not panel_name or panel_name != Path(panel_name).name:
+        return None
+    target = (base_dir / f"{panel_name}.weldb").resolve()
+    if target.parent != base_dir.resolve():
+        return None
+    return target
+
+
+def _reject_code_dir(directory: Path) -> str | None:
+    """Return an error message if ``directory`` lies inside the static code tree.
+
+    The entire repo folder (this server, the ``weldb`` library, the bundled
+    ``examples/`` catalog and the specification ``.md`` files) is a read-only
+    resource: the server must never create, move, or overwrite files inside it.
+    Any tool that writes checks its target through this guard so a stray
+    ``project_path`` pointed at the code directory is refused rather than
+    silently mutating the installation.
+    """
+    d = directory.resolve()
+    code = CODE_DIR.resolve()
+    if d == code or code in d.parents:
+        return (
+            f"Refusing to write inside the weldb code directory ({code}). "
+            "It is a static resource. Point project_path at the user's own "
+            "project folder instead."
+        )
+    return None
 
 
 def _quarantine_dir(directory: Path) -> Path:
@@ -135,6 +207,16 @@ def _next_panel_name(directory: Path, wall: str) -> str:
     return f"{wall}{next_num}"
 
 
+def _column_letters(i: int) -> str:
+    """Spreadsheet-style column label for a zero-based index (0->A, 25->Z, 26->AA)."""
+    letters = ""
+    i += 1
+    while i > 0:
+        i, rem = divmod(i - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
+
+
 def _build_grid(tube_start: int, tube_end: int) -> list[list[str]]:
     """Build a basic hot-side grid for a tube range.
 
@@ -144,9 +226,11 @@ def _build_grid(tube_start: int, tube_end: int) -> list[list[str]]:
     """
     tubes = list(range(tube_start, tube_end + 1))
     num_tubes = len(tubes)
-    # Membrane labels: _A, _B, _C, ...
+    # Membrane labels: _A, _B, ... _Z, _AA, _AB, ... (spreadsheet-style, so a
+    # panel with more than 26 membranes stays alphabetic instead of spilling
+    # into '_[', '_\\', '__' etc.).
     num_membranes = num_tubes + 1
-    membrane_labels = [f"_{chr(65 + i)}" for i in range(num_membranes)]
+    membrane_labels = [f"_{_column_letters(i)}" for i in range(num_membranes)]
 
     cols = num_membranes + num_tubes  # alternating membrane, tube, membrane...
     top_row: list[str] = []
@@ -186,8 +270,6 @@ def _build_cold_side_grid(hot_grid: list[list[str]]) -> list[list[str]]:
 # Startup — regenerate CSV files
 # ---------------------------------------------------------------------------
 
-WELD_PREFIXES_MAP = {"*": "point", "_": "linear", "@": "area"}
-
 
 def _regenerate_all_csv_files(directory: Path) -> str:
     """Load all .weldb files, extract all weld types, write three CSV files.
@@ -200,6 +282,10 @@ def _regenerate_all_csv_files(directory: Path) -> str:
     Files that raise exceptions are moved to quarantine/.
     Returns a status message.
     """
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
+
     files = _list_weldb_files(directory)
     if not files:
         return f"No .weldb files in {directory} — skipped CSV generation."
@@ -215,7 +301,9 @@ def _regenerate_all_csv_files(directory: Path) -> str:
 
     for filepath in files:
         try:
-            doc = yaml.safe_load(filepath.read_text())
+            # Validate via the library loader (same rules as render/extract), so a
+            # file that fails validation here also fails there — no drift.
+            doc = load(filepath)
             panel_name = doc["panel_name"]
 
             maps = doc.get("maps", [])
@@ -321,8 +409,11 @@ def _regenerate_all_csv_files(directory: Path) -> str:
     return "\n".join(lines)
 
 
-# Run CSV generation at import/startup time
-_startup_msg = _regenerate_all_csv_files(EXAMPLES_DIR)
+# Run CSV generation at import/startup time against the default project directory
+# (the working directory the server was launched in) — NOT the examples catalog.
+# When the working directory holds no panels this is a harmless no-op; agents drive
+# the real work by passing project_path to regenerate_all_csv_files.
+_startup_msg = _regenerate_all_csv_files(DEFAULT_PROJECT_DIR)
 print(_startup_msg, file=sys.stderr)
 
 
@@ -333,10 +424,13 @@ print(_startup_msg, file=sys.stderr)
 
 @mcp.tool()
 def list_panels(project_path: str | None = None) -> str:
-    """List all .weldb panel files in the project directory.
+    """List all .weldb panel files in the user's project directory.
 
-    Returns panel names, tube material, tube range, and revision info
-    so the AI can understand the current project state.
+    Pass ``project_path`` pointing at the user's project folder (the directory
+    holding their .weldb panels). Returns panel names, tube material, tube range,
+    and revision info so the AI can understand the current project state. A file
+    that cannot be loaded is listed with its error rather than aborting the whole
+    listing.
     """
     directory = _find_project_dir(project_path)
     files = _list_weldb_files(directory)
@@ -345,27 +439,31 @@ def list_panels(project_path: str | None = None) -> str:
 
     lines = [f"Project directory: {directory}", f"Panels ({len(files)}):", ""]
     for f in files:
-        with open(f) as fh:
-            doc = yaml.safe_load(fh)
-        maps = doc.get("maps", [])
-        latest = maps[-1] if maps else {}
-        views = latest.get("views", [])
-        # Count welds in hot side
-        point_count = 0
-        for v in views:
-            for row in v.get("grid", []):
-                for cell in row:
-                    if cell.startswith("*"):
-                        point_count += 1
-        lines.append(
-            f"  {doc['panel_name']:8s}  "
-            f"mtrl={doc.get('tube_mtrl', '?')}  "
-            f"od={doc.get('tube_od', '?')}  "
-            f"wall={doc.get('tube_wall', '?')}  "
-            f"units={doc.get('units', '?')}  "
-            f"rev={latest.get('rev', '?')}  "
-            f"welds={point_count}"
-        )
+        # Validate each file with the library loader; report per-file failures
+        # instead of letting one malformed file break the entire listing.
+        try:
+            doc = load(f)
+            maps = doc.get("maps", [])
+            latest = maps[-1] if maps else {}
+            views = latest.get("views", [])
+            point_count = sum(
+                1
+                for v in views
+                for row in v.get("grid", [])
+                for cell in row
+                if cell.startswith("*")
+            )
+            lines.append(
+                f"  {doc.get('panel_name', f.stem):8s}  "
+                f"mtrl={doc.get('tube_mtrl', '?')}  "
+                f"od={doc.get('tube_od', '?')}  "
+                f"wall={doc.get('tube_wall', '?')}  "
+                f"units={doc.get('units', '?')}  "
+                f"rev={latest.get('rev', '?')}  "
+                f"welds={point_count}"
+            )
+        except Exception as exc:  # noqa: BLE001 — report, don't abort the listing
+            lines.append(f"  {f.stem:8s}  <error: {exc}>")
     return "\n".join(lines)
 
 
@@ -373,11 +471,14 @@ def list_panels(project_path: str | None = None) -> str:
 def read_panel(panel_name: str, project_path: str | None = None) -> str:
     """Read and return the full YAML content of a specific panel file.
 
-    Use this to inspect an existing panel's structure, grid layout,
-    weld overrides, and revision history.
+    Pass ``project_path`` pointing at the user's project folder. Use this to
+    inspect an existing panel's structure, grid layout, weld overrides, and
+    revision history.
     """
     directory = _find_project_dir(project_path)
-    filepath = directory / f"{panel_name}.weldb"
+    filepath = _resolve_panel_path(directory, panel_name)
+    if filepath is None:
+        return f"Invalid panel name '{panel_name}'."
     if not filepath.exists():
         return f"Panel file not found: {filepath}"
     return filepath.read_text()
@@ -390,8 +491,10 @@ def create_panel(
     tube_od: float,
     tube_wall: float,
     units: str,
+    elevation: str,
     tube_start: int,
     tube_end: int,
+    elevation_at: str = "",
     updated_by: str = "mcp",
     comments: str = "Initial weld map layout",
     project_path: str | None = None,
@@ -402,7 +505,7 @@ def create_panel(
     Before calling this tool, you MUST:
     1. Determine the correct panel_name using the panel naming convention
        (wall code + next sequential number). Use list_panels to see existing panels.
-    2. Confirm tube_mtrl, tube_od, tube_wall, and units with the user.
+    2. Confirm tube_mtrl, tube_od, tube_wall, units, and elevation with the user.
     3. Know the tube range (tube_start and tube_end inclusive).
 
     The tool generates a standard layout with membrane welds between tubes,
@@ -414,11 +517,14 @@ def create_panel(
         tube_od: Tube outside diameter.
         tube_wall: Tube wall thickness.
         units: One of: mm, ft_in, in, dec_in, dec_ft.
+        elevation: Where the panel sits — a free-form dimension (e.g. '1850 in')
+            or a scaffold floor level (e.g. 'Scaffold L3'). Required, non-empty.
         tube_start: First tube number (inclusive).
         tube_end: Last tube number (inclusive).
+        elevation_at: Optional note for what the elevation refers to (e.g. 'top').
         updated_by: Author of the revision.
         comments: Revision comment.
-        project_path: Directory to write to. Defaults to examples/.
+        project_path: The user's project folder to write the panel into.
         custom_fields: Optional dict of extra top-level fields (e.g., client, job_number).
 
     Returns a confirmation message with the file path and weld count.
@@ -434,8 +540,20 @@ def create_panel(
             f"Valid wall codes: {', '.join(WALL_CODES)}"
         )
 
+    if units not in VALID_UNITS:
+        return f"Invalid units '{units}'. Must be one of: {', '.join(VALID_UNITS)}."
+
+    if not elevation.strip():
+        return "elevation is required and must not be empty (e.g. '1850 in' or 'Scaffold L3')."
+
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
+
     # Check for name collision
-    filepath = directory / f"{panel_name}.weldb"
+    filepath = _resolve_panel_path(directory, panel_name)
+    if filepath is None:
+        return f"Invalid panel name '{panel_name}'."
     if filepath.exists():
         return f"Panel '{panel_name}' already exists at {filepath}. Choose a different name."
 
@@ -452,7 +570,10 @@ def create_panel(
         "tube_od": tube_od,
         "tube_wall": tube_wall,
         "units": units,
+        "elevation": elevation,
     }
+    if elevation_at.strip():
+        doc["elevation_at"] = elevation_at
 
     if custom_fields:
         for k, v in custom_fields.items():
@@ -472,8 +593,15 @@ def create_panel(
     ]
 
     directory.mkdir(parents=True, exist_ok=True)
-    with open(filepath, "w") as f:
-        yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
+    save(doc, filepath)
+
+    # Validate the written file by loading it back (same rules as render/extract),
+    # so create_panel never leaves an unloadable file behind.
+    try:
+        load(filepath)
+    except Exception as exc:  # noqa: BLE001 — surface the failure and clean up
+        filepath.unlink(missing_ok=True)
+        return f"create_panel produced an invalid file and aborted (no file written): {exc}"
 
     num_tubes = tube_end - tube_start + 1
     point_welds = num_tubes * 2  # top + bottom per tube
@@ -488,13 +616,131 @@ def create_panel(
 
 
 @mcp.tool()
+def extract_weld_positions(
+    panel_name: str,
+    project_path: str | None = None,
+    canvas_w: float | None = None,
+    canvas_h: float | None = None,
+    include_text: bool = False,
+) -> str:
+    """Extract the on-drawing position of every weld in a panel to a JSON file.
+
+    Writes ``<panel_name>_weld_positions.json`` into the user's project folder
+    (next to the panel) and returns its content. For each weld region the JSON
+    holds a bounding box (upper-left ``x0,y0`` and lower-right ``x1,y1`` corners)
+    in the rendered PDF's coordinate space: millimetres, origin at the
+    **top-left** of the page, y increasing downward. The page width and height
+    (also in mm) are included so a consumer can map the boxes onto any canvas.
+    Coordinates match exactly where each weld is drawn by render_pdf — welds are
+    reported per drawn region (an interrupted membrane run yields one entry per
+    shape), and an empty back/cold view uses its mirrored layout, as drawn.
+
+    QC Database pixel conversion: pass ``canvas_w`` and ``canvas_h`` (the target
+    canvas size in pixels). Each weld then also gets integer ``px0, py0, px1,
+    py1`` pixel corners, scaled proportionally from mm — ``px = x_mm /
+    page_width * canvas_w`` and ``py = y_mm / page_height * canvas_h`` (no
+    vertical flip, since both spaces put the origin at the top-left). Omit them
+    to keep the file device-independent.
+
+    Args:
+        panel_name: Panel identifier (file stem, e.g. N5).
+        project_path: The user's project folder holding the panel file; the JSON
+            is written here too.
+        canvas_w: Optional target canvas width in pixels (enables px output).
+        canvas_h: Optional target canvas height in pixels (enables px output).
+        include_text: If true, also report plain-text regions (tube numbers,
+            annotations), not just welds. Empty regions are never reported.
+
+    Returns the path written and the JSON content.
+    """
+    directory = _find_project_dir(project_path)
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
+    filepath = _resolve_panel_path(directory, panel_name)
+    if filepath is None:
+        return f"Invalid panel name '{panel_name}'."
+    if not filepath.exists():
+        return f"Panel file not found: {filepath}"
+
+    if (canvas_w is None) != (canvas_h is None):
+        return "Provide both canvas_w and canvas_h for pixel output, or neither."
+    if canvas_w is not None and (canvas_w <= 0 or canvas_h <= 0):
+        return "canvas_w and canvas_h must be positive."
+
+    try:
+        from weldb import write_weld_positions
+    except ImportError as exc:
+        return f"Weld position extraction unavailable: {exc}"
+
+    out_path = directory / f"{panel_name}_weld_positions.json"
+    try:
+        written = write_weld_positions(
+            filepath,
+            output_path=out_path,
+            include_text=include_text,
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface the failure to the caller
+        return f"Failed to extract weld positions from {filepath.name}: {exc}"
+
+    return f"Wrote {written}\n\n{written.read_text(encoding='utf-8')}"
+
+
+@mcp.tool()
+def render_revision_history(panel_name: str, project_path: str | None = None) -> str:
+    """Render a panel's full revision history to a standalone PDF.
+
+    Writes ``<panel_name>_revisions.pdf`` into the user's project folder, listing
+    every revision in a bordered table with the columns Rev, Date, Updated By,
+    and Comments, ordered oldest to newest and paginated across as many sheets as
+    needed. Unlike the abbreviated revision block on the main drawing (which is
+    capped to what fits), this is the complete, unabridged history.
+
+    Args:
+        panel_name: Panel identifier (file stem, e.g. N5).
+        project_path: The user's project folder holding the panel file; the PDF
+            is written here too.
+
+    Requires the optional fpdf2 dependency (pip install weldb[pdf]).
+    """
+    directory = _find_project_dir(project_path)
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
+    filepath = _resolve_panel_path(directory, panel_name)
+    if filepath is None:
+        return f"Invalid panel name '{panel_name}'."
+    if not filepath.exists():
+        return f"Panel file not found: {filepath}"
+
+    try:
+        from weldb import render_revision_history_pdf
+    except ImportError as exc:
+        return f"PDF rendering unavailable: {exc}"
+
+    out_path = directory / f"{panel_name}_revisions.pdf"
+    try:
+        written = render_revision_history_pdf(filepath, output_path=out_path)
+        n_revs = len(load(filepath).get("maps", []))
+    except Exception as exc:  # noqa: BLE001 — surface the failure to the caller
+        return f"Failed to render revision history for {filepath.name}: {exc}"
+
+    return f"Wrote {written} ({n_revs} revision(s))"
+
+
+@mcp.tool()
 def suggest_panel_name(wall_code: str, project_path: str | None = None) -> str:
     """Suggest the next panel name for a given wall code.
 
     Use this after determining which wall the user is referring to.
     For example, if the user says 'west wall', pass wall_code='W'.
 
-    Valid wall codes: N, S, E, W, T, F, LS, US, H, TB, NE, NW, SE, SW, D, B
+    Valid wall codes are the entries in WALL_CODES (single-letter walls N, S, E,
+    W, T, F, H, D; features LS, US, TB, BN; corners NE, NW, SE, SW; and the
+    directional disambiguations WLS, ELS, NTB, STB, NBN, SBN, ND, SD). The error
+    message lists the full set if an unknown code is passed.
     """
     wall_code = wall_code.upper()
     if wall_code not in WALL_CODES:
@@ -626,12 +872,16 @@ def read_example_file(example: str, filename: str) -> str:
 
 
 @mcp.tool()
-def render_example(example: str, filename: str | None = None) -> str:
-    """Render example .weldb file(s) to PDF.
+def render_example(
+    example: str, filename: str | None = None, project_path: str | None = None
+) -> str:
+    """Render example .weldb file(s) to PDF in the user's project folder.
 
-    Pass an example folder name and optionally a single .weldb file name.
-    If filename is omitted, every .weldb file in the folder is rendered.
-    Each PDF is written alongside its source with a .pdf extension.
+    The examples catalog is a read-only reference, so the generated PDFs are
+    written into ``project_path`` (the user's project folder) — never back into
+    the examples directory. Pass an example folder name and optionally a single
+    .weldb file name; if filename is omitted, every .weldb file in the folder is
+    rendered. Each PDF keeps the source stem with a .pdf extension.
     Requires the optional fpdf2 dependency (pip install weldb[pdf]).
     """
     folder = _resolve_example_path(example)
@@ -649,21 +899,27 @@ def render_example(example: str, filename: str | None = None) -> str:
         if not targets:
             return f"Example '{example}' has no .weldb files to render."
 
+    out_dir = _find_project_dir(project_path)
+    guard = _reject_code_dir(out_dir)
+    if guard:
+        return guard
+
     try:
         from weldb import render_pdf
     except ImportError as exc:
         return f"PDF rendering unavailable: {exc}"
 
+    out_dir.mkdir(parents=True, exist_ok=True)
     rendered: list[str] = []
     errors: list[str] = []
     for src in targets:
         try:
-            pdf_path = render_pdf(src)
-            rendered.append(str(pdf_path.relative_to(EXAMPLES_DIR)))
+            pdf_path = render_pdf(src, output_path=out_dir / f"{src.stem}.pdf")
+            rendered.append(pdf_path.name)
         except Exception as exc:  # noqa: BLE001 — report per-file failures
             errors.append(f"{src.name}: {exc}")
 
-    lines = [f"Rendered {len(rendered)} PDF(s) from examples/{example}/:"]
+    lines = [f"Rendered {len(rendered)} PDF(s) from examples/{example}/ into {out_dir}:"]
     lines += [f"  {p}" for p in rendered]
     if errors:
         lines.append(f"Failed ({len(errors)}):")
@@ -681,7 +937,12 @@ def quarantine_panel(panel_name: str, project_path: str | None = None) -> str:
     active weld log and CSV export.
     """
     directory = _find_project_dir(project_path)
-    filepath = directory / f"{panel_name}.weldb"
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
+    filepath = _resolve_panel_path(directory, panel_name)
+    if filepath is None:
+        return f"Invalid panel name '{panel_name}'."
     if not filepath.exists():
         return f"Panel file not found: {filepath}"
 
@@ -701,11 +962,16 @@ def restore_from_quarantine(panel_name: str, project_path: str | None = None) ->
     Use this after fixing the issue that caused the file to be quarantined.
     """
     directory = _find_project_dir(project_path)
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
     quarantine = _quarantine_dir(directory)
-    src = quarantine / f"{panel_name}.weldb"
+    src = _resolve_panel_path(quarantine, panel_name)
+    dest = _resolve_panel_path(directory, panel_name)
+    if src is None or dest is None:
+        return f"Invalid panel name '{panel_name}'."
     if not src.exists():
         return f"'{panel_name}.weldb' not found in quarantine."
-    dest = directory / f"{panel_name}.weldb"
     if dest.exists():
         return f"'{panel_name}.weldb' already exists in the project directory. Remove or rename it first."
     shutil.move(str(src), str(dest))
@@ -721,7 +987,12 @@ def archive_panel(panel_name: str, project_path: str | None = None) -> str:
     Never delete panel files — archive them instead.
     """
     directory = _find_project_dir(project_path)
-    filepath = directory / f"{panel_name}.weldb"
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
+    filepath = _resolve_panel_path(directory, panel_name)
+    if filepath is None:
+        return f"Invalid panel name '{panel_name}'."
     if not filepath.exists():
         return f"Panel file not found: {filepath}"
 
@@ -741,11 +1012,16 @@ def restore_from_archive(panel_name: str, project_path: str | None = None) -> st
     Use this when cancelled scope is reinstated.
     """
     directory = _find_project_dir(project_path)
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
     archive = _archive_dir(directory)
-    src = archive / f"{panel_name}.weldb"
+    src = _resolve_panel_path(archive, panel_name)
+    dest = _resolve_panel_path(directory, panel_name)
+    if src is None or dest is None:
+        return f"Invalid panel name '{panel_name}'."
     if not src.exists():
         return f"'{panel_name}.weldb' not found in archive."
-    dest = directory / f"{panel_name}.weldb"
     if dest.exists():
         return f"'{panel_name}.weldb' already exists in the project directory. Remove or rename it first."
     shutil.move(str(src), str(dest))
@@ -788,9 +1064,11 @@ def list_archive(project_path: str | None = None) -> str:
 def regenerate_all_csv_files(project_path: str | None = None) -> str:
     """Regenerate all three CSV files from active .weldb files.
 
-    Produces point_welds.csv, linear_welds.csv, and area_welds.csv.
-    Call this after creating, archiving, quarantining, or restoring panels
-    to ensure the CSVs are up to date. Also run automatically at server startup.
+    Pass ``project_path`` pointing at the user's project folder. Produces
+    point_welds.csv, linear_welds.csv, and area_welds.csv in that folder. Call
+    this after creating, archiving, quarantining, or restoring panels to keep the
+    CSVs up to date. (A startup pass also runs against the server's working
+    directory, which is a no-op unless panels happen to live there.)
     """
     directory = _find_project_dir(project_path)
     return _regenerate_all_csv_files(directory)
@@ -817,6 +1095,7 @@ def create_panel_workflow() -> str:
         "   - tube_od (e.g., 2.0)\n"
         "   - tube_wall (e.g., 0.15)\n"
         "   - units (e.g., in)\n"
+        "   - elevation (e.g., 1850 in, or Scaffold L3)\n"
         "6. Confirm all parameters with the user before calling create_panel.\n"
         "7. After creation, show the user what was created."
     )

@@ -19,7 +19,13 @@ from weldb.document import (
     save,
 )
 from weldb.export import to_csv, to_json, to_xlsx
-from weldb.render import render_monospace, render_pdf
+from weldb.render import (
+    render_monospace,
+    render_pdf,
+    render_revision_history_pdf,
+    weld_positions,
+    write_weld_positions,
+)
 from weldb.models import AreaWeld, LinearWeld, PointWeld
 from weldb.weld_log import WELD_ID_SEPARATOR, build_weld_log, prefix_weld_id
 from weldb.welds import (
@@ -43,6 +49,9 @@ __all__ = [
     "resolve_weld_properties",
     "render_monospace",
     "render_pdf",
+    "render_revision_history_pdf",
+    "weld_positions",
+    "write_weld_positions",
     "build_weld_log",
     "prefix_weld_id",
     "WELD_ID_SEPARATOR",
