@@ -8,7 +8,7 @@
 # If failed repair must be cut out and replaced with a dutchman, this will 
 # change the design of the panel, and should be "redlined" with a revision.
 #
-# This panel shows three things:
+# This panel shows four things:
 #
 # 1. APPEND-ONLY HISTORY. The maps array holds R0 (as-built) and R1 (after the
 #    dutchman was installed). Maps are never edited in place — each revision is
@@ -24,6 +24,8 @@
 #    the drawing should visually show this as welds above and below the
 #    original top cutline for the panel. This requires adding more rows to the
 #    grid array of the revised view.
+#
+# 4. "DM" dutchman label. This is a style choice. Tube number could be used here.
 # 
 panel_name: N10
 tube_mtrl: SA-210 A1
@@ -68,9 +70,9 @@ maps:
       - name: hot_side
         grid:
           - [_A, "*T250DT",_B, "251", "", "252", ""]
-          - [_A, "250", _B, "251", "", "252", ""]
-          - [_A, "250", _B, "*T251", _C, "*T252", _D]
-          - [_A, "250", _B, "251", "", "252", _D]
+          - [_A, "DM", _B, "251", "", "252", ""]
+          - [_A, "DM", _B, "*T251", _C, "*T252", _D]
+          - [_A, "DM", _B, "251", "", "252", _D]
           - [_A, "*T250DB", _B, "251", "", "252", _D]
           - [_A, "250", "", "251", "", "252", _D]
           - [_A, "250", "", "251", "", "252", _D]

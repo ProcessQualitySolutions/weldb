@@ -1,10 +1,16 @@
 # Transition belt panel — a mid-panel belt where alternating tubes transition.
 #
 # The top and bottom of the panel are a conventional membrane wall (*T### / *B###
-# tube welds joined by the _A/_F side membranes and the peanut welds). Across the
+# tube welds joined by the side membranes and the peanut welds). Across the
 # middle runs a transition belt: tubes 250, 252 and 254 carry a pair of transition
 # welds there — *MT### (transition top) and *MB### (transition bottom) — with the
 # membrane interrupted between them, while tubes 251 and 253 pass straight through.
+#
+# NOTE: Because the outer membrane welds are interupted, we can give the top and 
+# bottom half of the panel side membrane welds different labels. If the sides of the 
+# panel were straight-through tubes, then the side membrane welds would be continuous
+# and the full side weld would have one label. Continuous linear welds CAN be broken 
+# into shorter shorter sections, but that should only occur if the user requests it.
 panel_name: N20
 tube_mtrl: SA-210 A1
 tube_od: 2.0
@@ -36,8 +42,8 @@ maps:
           - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
           - [_A, "*MT250", "", "251", "", "*MT252", "", "253", "", "*MT254", _F]
           - ["", "", "", "251", "", "", "", "253", "", "", ""]
-          - [_A, "*MB250", "", "251", "", "*MB252", "", "253", "", "*MB254", _F]
-          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
-          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
-          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
-          - [_A, "*B250", _G, "*B251", _H, "*B252", _I, "*B253", _J, "*B254", _F]
+          - [_G, "*MB250", "", "251", "", "*MB252", "", "253", "", "*MB254", _L]
+          - [_G, "250", "", "251", "", "252", "", "253", "", "254", _L]
+          - [_G, "250", "", "251", "", "252", "", "253", "", "254", _L]
+          - [_G, "250", "", "251", "", "252", "", "253", "", "254", _L]
+          - [_G, "*B250", _H, "*B251", _I, "*B252", _J, "*B253", _K, "*B254", _L]

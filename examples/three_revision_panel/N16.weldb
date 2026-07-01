@@ -10,6 +10,9 @@
 #   R2 — a second dutchman, this time in tube 250's lower section (*B250DT /
 #        *B250DB). Tube 251's earlier repair is carried forward unchanged.
 # The revision-history table on the drawing lists all three.
+#
+# NOTE: Simple membrane rendering style used here. This still allows a good
+# representation of how the membrane welds had to be extended for the dutchmen.
 panel_name: N16
 tube_mtrl: SA-210 A1
 tube_od: 2.0
@@ -23,9 +26,13 @@ weld_overrides:
   linear:
     length: 8
   _A:
-    length: 36
+    length: 44
   _D:
     length: 36
+  _E:
+    length: 18
+  _F:
+    length: 18
 
 maps:
   - rev: R0
@@ -56,8 +63,8 @@ maps:
           - [_A, "250", "", "251", "", "252", _D]
           - [_A, "250", "", "251", "", "252", _D]
           - [_A, "250", "", "*B251DT", "", "252", _D]
-          - [_A, "250", "", "*B251DB", "", "252", _D]
-          - [_A, "*B250", _E, "", _F, "*B252", _D]
+          - [_A, "*B250", _E, "DM", _F, "*B252", _D]
+          - ["", "250", "", "*B251DB", "", "252", ""]
   - rev: R2
     date: 2026-07-01
     updated_by: example
@@ -70,6 +77,6 @@ maps:
           - [_A, "250", "", "251", "", "252", _D]
           - [_A, "250", "", "251", "", "252", _D]
           - [_A, "250", "", "251", "", "252", _D]
-          - [_A, "*B250DT", "", "*B251DT", "", "252", _D]
-          - [_A, "*B250DB", "", "*B251DB", "", "252", _D]
-          - [_A, "", _E, "", _F, "*B252", _D]
+          - [_A, "*B250DT", _E, "*B251DT", _F, "252", _D]
+          - [_A, "DM", _E, "DM", _F, "*B252", _D]
+          - [_A, "*B250DB", _E, "*B251DB", _F, "252", ""]
