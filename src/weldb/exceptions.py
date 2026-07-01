@@ -16,6 +16,16 @@ class InvalidFileExtensionError(WeldbError):
         )
 
 
+class MissingRequiredFieldError(WeldbError):
+    """Raised when a required top-level field is missing or empty."""
+
+    def __init__(self, field_name: str):
+        self.field_name = field_name
+        super().__init__(
+            f"Required field '{field_name}' is missing or empty."
+        )
+
+
 class DuplicatePointWeldError(WeldbError):
     """Raised when a point weld identifier appears more than once in a grid."""
 

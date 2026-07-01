@@ -1,0 +1,61 @@
+# Cladding (partial panel) — cladding applied only over certain areas.
+#
+# The hot_side view is the conventional weld map; the second "cladding" view
+# shows cladding over specific areas (@CL1..@CL4) rather than the whole face —
+# e.g. when the main panel was clad at the factory and only field-welded areas
+# are clad on site.
+panel_name: N22
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 665 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 8
+  _A:
+    length: 36
+  _F:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Conventional panel with partial-area cladding, tubes 250-254.
+    views:
+      - name: hot_side
+        grid:
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - [_A, "250", _B, "251", _C, "252", _D, "253", _E, "254", _F]
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D, "*T253", _E, "*T254", _F]
+          - [_A, "250", _B, "251", _C, "252", _D, "253", _E, "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", _G, "251", _H, "252", _I, "253", _J, "254", _F]
+          - [_A, "*B250", _G, "*B251", _H, "*B252", _I, "*B253", _J, "*B254", _F]
+          - [_A, "250", _G, "251", _H, "252", _I, "253", _J, "254", _F]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+      - name: cladding
+        grid:
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL2", "@CL2", "", "251", "", "252", "", "253", "", "@CL3", "@CL3"]
+          - ["@CL2", "@CL2", "", "251", "", "252", "", "253", "", "@CL3", "@CL3"]
+          - ["@CL2", "@CL2", "", "251", "", "252", "", "253", "", "@CL3", "@CL3"]
+          - ["@CL2", "@CL2", "", "251", "", "252", "", "253", "", "@CL3", "@CL3"]
+          - ["@CL2", "@CL2", "", "251", "", "252", "", "253", "", "@CL3", "@CL3"]
+          - ["@CL2", "@CL2", "", "251", "", "252", "", "253", "", "@CL3", "@CL3"]
+          - ["@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4"]
+          - ["@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4"]
+          - ["@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4"]
+          - ["@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4", "@CL4"]

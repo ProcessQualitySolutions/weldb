@@ -1,0 +1,80 @@
+# Dutchman repair redlined into the file, with revision history.
+#
+# Only PHYSICAL changes to the panel are redlined into a .weldb file. Installing
+# a dutchman (replacement tube section) is a physical change, so it is recorded
+# here. Weld repair history i.e. an "R1" weld can be tracked in the weld log
+# without modifying the weldmap db. 
+#
+# If failed repair must be cut out and replaced with a dutchman, this will 
+# change the design of the panel, and should be "redlined" with a revision.
+#
+# This panel shows three things:
+#
+# 1. APPEND-ONLY HISTORY. The maps array holds R0 (as-built) and R1 (after the
+#    dutchman was installed). Maps are never edited in place — each revision is
+#    appended, and the LAST map (R1) is the authoritative current state.
+#
+# 2. DUTCHMAN SUFFIXES (see weld_naming_convention.md). Tube 250's top weld
+#    failed on repair, so that section was cut out and a dutchman welded in: the
+#    original *T250 is gone in R1, replaced by *T250DT (dutchman top) and
+#    *T250DB (dutchman bottom).
+#
+# 3. VISUAL DUTCHMAN. Because a weld on tube 250 was cut out, and a dutchman 
+#    installed extended above and below the original T250 weld location, 
+#    the drawing should visually show this as welds above and below the
+#    original top cutline for the panel. This requires adding more rows to the
+#    grid array of the revised view.
+# 
+panel_name: N10
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 560 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 8
+  _A:
+    length: 44
+  _D:
+    length: 36
+  _B:
+    length: 16
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: As-built layout, tubes 250-252.
+    views:
+      - name: hot_side
+        grid:
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "*B250", _E, "*B251", _F, "*B252", _D]
+  - rev: R1
+    date: 2026-06-01
+    updated_by: example
+    comments: Tube 250 top weld failed on repair; section cut out and replaced with a dutchman.
+    views:
+      - name: hot_side
+        grid:
+          - [_A, "*T250DT",_B, "251", "", "252", ""]
+          - [_A, "250", _B, "251", "", "252", ""]
+          - [_A, "250", _B, "*T251", _C, "*T252", _D]
+          - [_A, "250", _B, "251", "", "252", _D]
+          - [_A, "*T250DB", _B, "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "*B250", _E, "*B251", _F, "*B252", _D]

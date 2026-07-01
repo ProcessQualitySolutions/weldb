@@ -25,3 +25,9 @@ desktop.ini
 # Generated example PDFs (rendered on demand, keep the repo light)
 examples/**/*.pdf
 examples/*.pdf
+
+# Local example render helper (run on demand, not part of the library)
+examples/render_all_examples.py
+
+# Personal scratch notes
+__temp*.txt

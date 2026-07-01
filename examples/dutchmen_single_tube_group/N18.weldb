@@ -1,0 +1,49 @@
+# Single-tube dutchman group — a few scattered tubes replaced, not a whole panel.
+#
+# Several individual tubes in a run were each replaced with their own single-tube
+# dutchman. This is NOT a full panel: only the dutchman tubes carry welds, and
+# only the membrane immediately ADJACENT to a dutchman is re-welded. The other
+# tubes (and their membranes) are shown for context with no welds.
+#
+# Style follows dutchman_single_tube: each dutchman has a top weld (*T###) and a
+# bottom weld (*B###) at the ends of the replacement piece, with "DM" labels in
+# between, and the adjacent membrane welds run just past those end welds.
+#
+# Here tubes 250, 253, 254 and 258 were replaced (scattered along the run).
+# Tubes 253 and 254 are next to each other, so the single membrane between them
+# (_D) is welded once and SHARED by both dutchmen.
+panel_name: N18
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 635 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Single-tube dutchmen on tubes 250, 253, 254, 258 (253 & 254 share a membrane).
+    views:
+      - name: hot_side
+        grid:
+          - ["", "248", "", "249", "", "250", "", "251", "", "252", "", "253", "", "254", "", "255", "", "256", "", "257", "", "258", "", "259", "", "260", ""]
+          - ["", "248", "", "249", _A, "250", _B, "251", "", "252", "", "253", "", "254", "", "255", "", "256", "", "257", "", "258", "", "259", "", "260", ""]
+          - ["", "248", "", "249", _A, "*T250", _B, "251", "", "252", "", "253", "", "254", "", "255", "", "256", "", "257", "", "258", "", "259", "", "260", ""]
+          - ["", "248", "", "249", _A, DM, _B, "251", "", "252", _C, "253", _D, "254", _E, "255", "", "256", "", "257", "", "258", "", "259", "", "260", ""]
+          - ["", "248", "", "249", _A, DM, _B, "251", "", "252", _C, "*T253", _D, "*T254", _E, "255", "", "256", "", "257", "", "258", "", "259", "", "260", ""]
+          - ["", "248", "", "249", _A, DM, _B, "251", "", "252", _C, DM, _D, DM, _E, "255", "", "256", "", "257", _F, "258", _G, "259", "", "260", ""]
+          - ["", "248", "", "249", _A, DM, _B, "251", "", "252", _C, DM, _D, DM, _E, "255", "", "256", "", "257", _F, "*T258", _G, "259", "", "260", ""]
+          - ["", "248", "", "249", _A, "*B250", _B, "251", "", "252", _C, DM, _D, DM, _E, "255", "", "256", "", "257", _F, DM, _G, "259", "", "260", ""]
+          - ["", "248", "", "249", _A, "250", _B, "251", "", "252", _C, DM, _D, DM, _E, "255", "", "256", "", "257", _F, DM, _G, "259", "", "260", ""]
+          - ["", "248", "", "249", "", "250", "", "251", "", "252", _C, "*B253", _D, "*B254", _E, "255", "", "256", "", "257", _F, DM, _G, "259", "", "260", ""]
+          - ["", "248", "", "249", "", "250", "", "251", "", "252", _C, "253", _D, "254", _E, "255", "", "256", "", "257", _F, DM, _G, "259", "", "260", ""]
+          - ["", "248", "", "249", "", "250", "", "251", "", "252", "", "253", "", "254", "", "255", "", "256", "", "257", _F, "*B258", _G, "259", "", "260", ""]
+          - ["", "248", "", "249", "", "250", "", "251", "", "252", "", "253", "", "254", "", "255", "", "256", "", "257", _F, "258", _G, "259", "", "260", ""]
+          - ["", "248", "", "249", "", "250", "", "251", "", "252", "", "253", "", "254", "", "255", "", "256", "", "257", "", "258", "", "259", "", "260", ""]

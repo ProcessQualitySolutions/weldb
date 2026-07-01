@@ -10,23 +10,44 @@ from typing import Any
 
 import yaml
 
-from weldb.exceptions import InvalidFileExtensionError
+from weldb.exceptions import InvalidFileExtensionError, MissingRequiredFieldError
 
 FILE_EXTENSION = ".weldb"
-REQUIRED_FIELDS = {"panel_name", "tube_mtrl", "tube_od", "tube_wall", "units", "maps"}
-RESERVED_FIELDS = REQUIRED_FIELDS | {"weld_overrides"}
+REQUIRED_FIELDS = {
+    "panel_name", "tube_mtrl", "tube_od", "tube_wall", "units", "elevation", "maps"
+}
+# Known optional fields: interpreted by the library (so not treated as free
+# "custom" fields) but not required.
+OPTIONAL_FIELDS = {"elevation_at"}
+RESERVED_FIELDS = REQUIRED_FIELDS | OPTIONAL_FIELDS | {"weld_overrides"}
+
+
+def _validate_elevation(doc: dict[str, Any]) -> None:
+    """Ensure the required ``elevation`` field is present and non-empty.
+
+    ``elevation`` is a free-form string (a dimension or a temporary scaffold
+    floor level); its contents are not constrained, but it must not be empty.
+    """
+    if not isinstance(doc, dict):
+        return
+    value = doc.get("elevation")
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise MissingRequiredFieldError("elevation")
 
 
 def load(path: str | Path) -> dict[str, Any]:
     """Load a .weldb YAML file and return it as a dict.
 
     Raises InvalidFileExtensionError if the file does not end with .weldb.
+    Raises MissingRequiredFieldError if the required ``elevation`` field is
+    missing or empty.
     """
     path = Path(path)
     if path.suffix != FILE_EXTENSION:
         raise InvalidFileExtensionError(str(path), FILE_EXTENSION)
     with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
+    _validate_elevation(doc)
     return doc
 
 

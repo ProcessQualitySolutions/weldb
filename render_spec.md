@@ -32,34 +32,106 @@ Views are rendered in the order they appear in the `views` array. Each view's gr
 
 A blank line or visual separator must appear between consecutive view grids to clearly distinguish them.
 
+### Empty / Back Views
+
+A view whose grid is entirely empty is **not** drawn as a blank box. Instead:
+
+- If another view in the same map has content, the empty view is rendered by
+  **mirroring** that sibling. Because the back is seen from behind, the mirror is
+  **reversed left-to-right** — a tube on the left of the front view appears on
+  the right of the back view. It shows the sibling's point welds, linear
+  (membrane) welds, plain-text annotations and tube numbers, but **drops area
+  welds** (`@`, e.g. cladding), which are usually one-sided. This gives a useful
+  back/cold view without re-entering the welds.
+- If there is no sibling to mirror from, the empty view is **omitted** entirely.
+
+Mirroring is **display-only**: weld tallies and the weld record come from the
+stored grids, so a mirrored weld is never double-counted.
+
 ## Cell Rendering Rules
 
 ### Point Welds
 
-- Each point weld cell must have a **visible border on all four sides**.
+- A point weld cell has a **visible border on all four sides** (no two point
+  welds are ever adjacent with the same ID within a view, so they never merge).
 - Display the cell value as-is (e.g., `*W1`).
 
 ### Linear Welds
 
-- Consecutive cells in the **same row** that share the same linear weld ID must be **visually merged** into a single span.
-- The merged span has **exterior borders only** — no internal cell borders within the span.
-- The weld label appears **once** in the merged span, not repeated per cell.
+- Cells that share the same linear weld ID and are **visually adjacent** must be **visually merged** into a single shape (see [Merging Adjacent Cells](#merging-adjacent-cells)).
+- The merged shape has **exterior borders only** — no internal cell borders within the shape.
+- The weld label appears **at least once** within the merged shape, not repeated per cell.
 - Display the cell value as-is (e.g., `_L1`).
-- Linear weld cells that are **not adjacent** (e.g., separated by a point weld) form separate visual spans, each labeled independently.
+- Linear weld cells that are **not adjacent** (e.g., separated by a point weld) form separate visual shapes, each labeled independently.
 
 ### Area Welds
 
-- Rendered identically to linear welds in the grid: consecutive cells in the same row with the same area weld ID are **visually merged** into a single span.
+- Rendered identically to linear welds in the grid: adjacent cells with the same area weld ID are **visually merged** (see [Merging Adjacent Cells](#merging-adjacent-cells)).
 - Display the cell value as-is (e.g., `@CL1`).
+
+### Merging Adjacent Cells
+
+Any cells that hold the **identical value** and are **visually adjacent** are
+merged: the borders between the merged cells are removed so the group reads as a
+single shape, and a non-empty label is drawn **at least once** per group (it is
+removed from the other cells, but never from all of them). This applies to
+**every** label — point welds, linear (`_`) and area (`@`) welds, plain-text
+annotations, tube numbers, **and empty strings** (adjacent blank cells merge
+into one borderless blank region, so the grid interior is open space rather than
+a lattice of empty boxes).
+
+- **Adjacency is edge-sharing.** In the PDF renderer cells merge in **any
+  direction** — horizontally across a row and vertically down a column — so a
+  membrane bar (or a tube number repeated down a tube) renders as one continuous
+  shape rather than a stack of separate boxes.
+- **A differing cell interrupts a run.** A point weld — or any cell with a
+  different value — breaks adjacency. The segments on either side form separate
+  groups, and **each segment keeps its own label**; the label is never lost on
+  one side of the interruption. For example, a row `[_A][_A][*T5][_A][_A]`
+  renders as `[_A    ][*T5][_A    ]`.
+
+This merging is a property of **rendering only**; it does not alter the stored
+grid (the markup). The monospace/terminal renderer merges within a row only (a
+limitation of a character grid); the PDF renderer merges in every direction.
+
+### Column Widths
+
+In the PDF renderer, grid **column widths scale to their content**: each
+column's width is proportional to the longest label it contains, so a column of
+tube welds (e.g. `*T250`) is wider than a narrow membrane column (e.g. `_A`).
+Every column keeps a small minimum width so empty columns stay visible. Row
+heights remain uniform.
+
+### View Aspect Cap (Square Rule)
+
+By default, a view's rendered grid is **capped so its drawn width never exceeds
+its drawn height**, and is centered horizontally within its box. This keeps a
+wide box — e.g. a single-view drawing that spans the full sheet — from
+stretching a short map into distortion.
+
+**Exception — wide grids.** When a grid has **more than 40 columns**, the square
+rule is **ignored** and the grid expands to fill the full available width. At
+that column count the per-column width is the limiting factor for legibility, so
+the map must use all the horizontal room available.
+
+### Vertical Labels (Wide Grids)
+
+When a grid has **more than 30 columns** *and* its column count is **more than
+twice its row count**, cell labels are rendered **rotated 90° (vertical, reading
+bottom-to-top)**. Such grids have tall, narrow cells; orienting the label along
+the cell's height lets it use a **larger font** than the narrow column width
+would allow horizontally. All other grids render labels horizontally.
 
 ### Plain Text Cells
 
 - No prefix, no special borders beyond the default grid lines.
-- Rendered as-is.
+- Rendered as-is. Tube numbers are plain-text cells placed on the tube columns
+  (they carry no weld prefix), and merge like any other label.
 
 ### Empty Cells
 
-- Rendered as blank space within the grid.
+- Rendered as blank space within the grid. Adjacent empty cells merge, so the
+  interior reads as open space (see [Merging Adjacent Cells](#merging-adjacent-cells)).
 
 ## Color
 

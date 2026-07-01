@@ -77,7 +77,12 @@ its grid is laid out.
 | `panel_with_clips/` | Cold-side attachment clips (`_CA`, `_CB`, ...). |
 | `port_panel/` | Plain-text port/opening labels (`IR`, `OBS`). |
 | `single_tube_dutchman/` | One tube's section replaced by a dutchman (`*B…DT`/`*B…DB`). |
+| `single_tube_dutchman_group/` | Many single-tube dutchmen across a wide panel; every membrane replaced full-length. |
 | `panel_with_repair_dutchman/` | A dutchman redlined in via an appended revision (append-only history). |
+| `two_view_panel/` | Two genuinely different views: hot-side welds plus cold-side clips. |
+| `three_revision_panel/` | Append-only history across three revisions (two dutchman repairs). |
+| `complex_panel/` | Every weld type on one map: point, membrane/peanut, an area (cladding) weld, and a port. |
+| `transition_belt_panel/` | A belt transition splits each tube column with `*BTT…`/`*BTB…` welds. |
 
 The MCP server exposes these through `list_examples`, `list_example_files`,
 `read_example_file`, and `render_example` (renders an example to PDF).

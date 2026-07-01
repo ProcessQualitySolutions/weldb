@@ -17,11 +17,21 @@ A project consists of multiple `.weldb` files in the same directory, one per pan
 | `tube_od`    | number | Tube outside diameter. |
 | `tube_wall`  | number | Tube wall thickness. |
 | `units`      | string | Unit system. One of: `mm`, `ft_in`, `in`, `dec_in`, `dec_ft`. |
+| `elevation`  | string | Where the panel sits — a free-form dimension (e.g. `1850 in`) or a temporary scaffold floor level (e.g. `Scaffold L3`). Contents are **not** constrained, but the value **must not be empty**. |
 | `maps`       | array  | Ordered array of map objects (see below). |
+
+## Optional Top-Level Fields
+
+| Field    | Type   | Description |
+|-------------|--------|-------------|
+| `panel_length` | number | Physical length of the panel, in the document's unit system. Optional. It informs the length of the long **side membrane welds** that run the full length of the panel — see [Membrane Weld Lengths](#membrane-weld-lengths-peanut-vs-side). |
+| `elevation_at` | string | Free-form note for what `elevation` refers to (e.g. `top` or `bottom`). Optional; contents are not constrained. |
+
+Like any string/number top-level field, `panel_length` is inherited by every weld as a baseline property. It is named distinctly from the weld `length` override field so it never shadows a weld's own length.
 
 ## Custom Top-Level Fields
 
-Any additional top-level fields beyond the required set are permitted. These custom fields should be rendered on drawings but are not interpreted by the core library. Use `custom_field_getter` and `custom_field_setter` to access them programmatically.
+Any additional top-level fields beyond the required and optional set are permitted. These custom fields should be rendered on drawings but are not interpreted by the core library. Use `custom_field_getter` and `custom_field_setter` to access them programmatically.
 
 ## Weld Property Inheritance
 
@@ -77,6 +87,25 @@ When resolving the effective properties of a weld, the most specific source wins
 | `height` | Area welds              | int  | Height of the weld, in the document's unit system. |
 
 Any field that appears as a top-level string or number field may also be used as an override (e.g., `tube_od`, `tube_wall`, `tube_mtrl`). Additional override-only fields like `length` and `height` are also permitted.
+
+### Membrane Weld Lengths (Peanut vs. Side)
+
+A panel's linear (membrane) welds fall into two length classes, and the override
+mechanism expresses both compactly while keeping the YAML small:
+
+- **Peanut welds** — the short membrane closures between adjacent tube welds in a
+  row. They all share one length, set **once** as the `linear` type-level
+  default. This length is a user choice (it is not fixed by the spec); the
+  example catalog uses **8** in the document's units.
+- **Side membrane welds** — the long outer membranes that run the full length of
+  the panel down each edge (e.g. `_A` and `_F`). Each is set with a
+  weld-specific override equal to the **`panel_length` plus the peanut length**.
+  With a `panel_length` of 28 and an 8-unit peanut, each side weld is
+  `28 + 8 = 36`.
+
+Because the many peanut welds inherit the single `linear` default and only the
+two long side welds carry an explicit override, a full panel needs just three
+`weld_overrides` entries for membrane lengths regardless of tube count.
 
 ## Map Object
 
@@ -180,17 +209,24 @@ tube_mtrl: SA-210 A1
 tube_od: 2.0
 tube_wall: 0.15
 units: in
-client: ACME Power        # custom field
+elevation: 1850 in          # required; free-form (dimension or scaffold floor)
+elevation_at: top           # optional; what the elevation refers to
+panel_length: 28            # panel length (optional)
+client: ACME Power          # custom field
 
 weld_overrides:
   linear:
-    length: 36              # default length for all linear welds
+    length: 8                # default length for all linear welds (peanut welds)
+  _A:
+    length: 36               # left side membrane = panel_length (28) + peanut (8)
+  _D:
+    length: 36               # right side membrane = panel_length (28) + peanut (8)
   area:
-    length: 24              # default dimensions for all area welds
+    length: 24               # default dimensions for all area welds
     height: 12
   _CA:
-    length: 6               # clip A is shorter
-    tube_od: 1.5            # clip welded to smaller tube
+    length: 6                # clip A is shorter
+    tube_od: 1.5             # clip welded to smaller tube
 
 maps:
   - rev: R0

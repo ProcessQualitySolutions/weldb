@@ -1,0 +1,43 @@
+# Transition belt panel — a mid-panel belt where alternating tubes transition.
+#
+# The top and bottom of the panel are a conventional membrane wall (*T### / *B###
+# tube welds joined by the _A/_F side membranes and the peanut welds). Across the
+# middle runs a transition belt: tubes 250, 252 and 254 carry a pair of transition
+# welds there — *MT### (transition top) and *MB### (transition bottom) — with the
+# membrane interrupted between them, while tubes 251 and 253 pass straight through.
+panel_name: N20
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 645 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 8
+  _A:
+    length: 36
+  _F:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Transition belt across tubes 250, 252 and 254.
+    views:
+      - name: hot_side
+        grid:
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D, "*T253", _E, "*T254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "*MT250", "", "251", "", "*MT252", "", "253", "", "*MT254", _F]
+          - ["", "", "", "251", "", "", "", "253", "", "", ""]
+          - [_A, "*MB250", "", "251", "", "*MB252", "", "253", "", "*MB254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "*B250", _G, "*B251", _H, "*B252", _I, "*B253", _J, "*B254", _F]

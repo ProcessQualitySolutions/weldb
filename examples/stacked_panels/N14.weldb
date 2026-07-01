@@ -1,0 +1,38 @@
+# Stacked arrangement (2 of 2) — panel below N13.
+#
+# Note the reference to N13 as the adjoining panel.
+#
+panel_name: N14
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 610 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 8
+  _A:
+    length: 36
+  _F:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Lower section of a stacked pair, tubes 250-254. See panel N13 for top tube welds.
+    views:
+      - name: hot_side
+        grid:
+          - ["N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13"]
+          - ["N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13", "N13"]
+          - ["N13", "250", "N13", "251", "N13", "252", "N13", "253", "N13", "254", "N13"]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "*B250", _G, "*B251", _H, "*B252", _I, "*B253", _J, "*B254", _F]

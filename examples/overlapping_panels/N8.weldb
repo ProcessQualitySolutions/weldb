@@ -1,0 +1,44 @@
+# Overlapping arrangement (2 of 2) — panel N8, the lower section.
+#
+# Note the reference to N7 as the adjoining panel. 
+#
+panel_name: N8
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 538 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 8
+  _A:
+    length: 36
+  _F:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Lower section of an overlapping pair, tubes 252-256.
+    views:
+      - name: hot_side
+        grid:
+          - ["N7", "N7", "N7", "N7", "N7", "N7", "", "255", "", "256", ""]
+          - ["N7", "N7", "N7", "N7", "N7", "N7", "", "255", "", "256", ""]
+          - [_A, "N7", _B, "N7", _C, "N7", _D, "255", _E, "256", _F]
+          - [_A, "*T252", _B, "*T253", _C, "*T254", _D, "*T255", _E, "*T256", _F]
+          - [_A, "252", _B, "253", _C, "254", _D, "255", _E, "256", _F]
+          - [_A, "252", "", "253", "", "254", "", "255", "", "256", _F]
+          - [_A, "252", "", "253", "", "254", "", "255", "", "256", _F]
+          - [_A, "252", "", "253", "", "254", "", "255", "", "256", _F]
+          - [_A, "252", "", "253", "", "254", "", "255", "", "256", _F]
+          - [_A, "252", "", "253", "", "254", "", "255", "", "256", _F]
+          - [_A, "252", "", "253", "", "254", "", "255", "", "256", _F]
+          - [_A, "252", _G, "253", _H, "254", _I, "255", _J, "256", _F]
+          - [_A, "*B252", _G, "*B253", _H, "*B254", _I, "*B255", _J, "*B256", _F]
+          - [_A, "252", _G, "253", _H, "254", _I, "255", _J, "256", _F]
+          - ["", "252", "", "253", "", "254", "", "255", "", "256", ""]

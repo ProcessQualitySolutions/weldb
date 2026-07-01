@@ -1,0 +1,41 @@
+# Single-tube dutchman.
+#
+# A "dutchman" is a replacement section spliced into a tube. Installing one
+# creates TWO new welds — one at each end of the replacement piece.
+# Tubes 248, 249, 251, and 252 were added to the drawing to provide better
+# visual context. The label "DM" is used on the dutchman here. This is a style
+# choice, as the the tube number could be used here instead.
+#
+panel_name: N12
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 590 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Tube 251 single tube dutchman
+    views:
+      - name: hot_side
+        grid:
+          - ["", "248", "", "249", "","250", "", "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"250", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"*T250", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"DM", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"DM", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"DM", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"DM", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"DM", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"DM", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"*B250", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", _A,"250", _B, "251", "", "252", ""]
+          - ["", "248", "", "249", "","250", "", "251", "", "252", ""]

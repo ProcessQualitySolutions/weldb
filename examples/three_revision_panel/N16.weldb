@@ -1,0 +1,75 @@
+# Three-revision panel — append-only history with two dutchman repairs.
+#
+# The maps array is append-only: each physical change adds a NEW map (never
+# edits an existing one), and the LAST map is the authoritative current state.
+# This panel records three revisions of tubes 250-252:
+#   R0 — as-built.
+#   R1 — a dutchman spliced into tube 251's lower section. The original *B251
+#        is gone, replaced by *B251DT (dutchman top) and *B251DB (dutchman
+#        bottom); the bottom-row 251 weld cell is now empty.
+#   R2 — a second dutchman, this time in tube 250's lower section (*B250DT /
+#        *B250DB). Tube 251's earlier repair is carried forward unchanged.
+# The revision-history table on the drawing lists all three.
+panel_name: N16
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 520 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 8
+  _A:
+    length: 36
+  _D:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: As-built layout, tubes 250-252.
+    views:
+      - name: hot_side
+        grid:
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "*B250", _E, "*B251", _F, "*B252", _D]
+  - rev: R1
+    date: 2026-06-15
+    updated_by: example
+    comments: Installed a dutchman on tube 251 (lower section).
+    views:
+      - name: hot_side
+        grid:
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "*B251DT", "", "252", _D]
+          - [_A, "250", "", "*B251DB", "", "252", _D]
+          - [_A, "*B250", _E, "", _F, "*B252", _D]
+  - rev: R2
+    date: 2026-07-01
+    updated_by: example
+    comments: Installed a dutchman on tube 250 (lower section).
+    views:
+      - name: hot_side
+        grid:
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "250", "", "251", "", "252", _D]
+          - [_A, "*B250DT", "", "*B251DT", "", "252", _D]
+          - [_A, "*B250DB", "", "*B251DB", "", "252", _D]
+          - [_A, "", _E, "", _F, "*B252", _D]

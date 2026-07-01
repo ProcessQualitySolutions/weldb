@@ -1,0 +1,44 @@
+# Overlapping arrangement (1 of 2) — panel N7, the upper section.
+#
+# Note the reference to N8 as the adjoining panel. 
+#
+panel_name: N7
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 540 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  linear:
+    length: 8
+  _A:
+    length: 36
+  _F:
+    length: 36
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Upper section of an overlapping pair, tubes 250-254. Bottom welds for tubes 252, 253, and 254 can be found on panel N8.
+    views:
+      - name: hot_side
+        grid:
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - [_A, "250", _B, "251", _C, "252", _D, "253", _E, "254", _F]
+          - [_A, "*T250", _B, "*T251", _C, "*T252", _D, "*T253", _E, "*T254", _F]
+          - [_A, "250", _B, "251", _C, "252", _D, "253", _E, "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", "", "251", "", "252", "", "253", "", "254", _F]
+          - [_A, "250", _G, "251", "N8", "252", "N8", "253", "N8", "254", "N8"]
+          - [_A, "*B250", _G, "*B251", "N8", "N8", "N8", "N8", "N8", "N8", "N8"]
+          - [_A, "250", _G, "251", "N8", "N8", "N8", "N8", "N8", "N8", "N8"]
+          - ["", "250", "", "251", "N8", "N8", "N8", "N8", "N8", "N8", "N8"]
+          - ["", "250", "", "251", "N8", "N8", "N8", "N8", "N8", "N8", "N8"]

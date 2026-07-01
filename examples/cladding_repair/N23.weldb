@@ -1,0 +1,58 @@
+# Existing tubes with damage repaired with cladding.
+#
+# One view shows where the repair is made with tube numbers.
+# A second view is added to show the full cladding of the "panel" after install.
+# This type of repair, with no tube or membrane welds, is usually performed on
+# existing tubing so there is no actual "panel" but this weld map is still helpful.
+panel_name: N23
+tube_mtrl: SA-210 A1
+tube_od: 2.0
+tube_wall: 0.15
+units: in
+elevation: 655 ft
+elevation_at: top
+panel_length: 28
+
+weld_overrides:
+  area:
+    length: 28
+    height: 24
+
+maps:
+  - rev: R0
+    date: 2026-06-01
+    updated_by: example
+    comments: Repair of damaged area. tubes 250-254.
+    views:
+      - name: tube area
+        grid:
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+          - ["", "250", "", "251", "", "252", "", "253", "", "254", ""]
+      - name: cladding
+        grid:
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
+          - ["@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1", "@CL1"]
