@@ -20,7 +20,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from weldb import load, prefix_weld_id, save
+from weldb import load, prefix_weld_id, resolve_weld_properties, save
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -270,14 +270,55 @@ def _build_cold_side_grid(hot_grid: list[list[str]]) -> list[list[str]]:
 # Startup — regenerate CSV files
 # ---------------------------------------------------------------------------
 
+# Resolved-property keys that are identity columns already carried by the weld
+# row, so they are not repeated as property columns in the CSV export.
+_PROP_EXCLUDE = {"panel_name"}
+
+
+def _weld_props(props_by_id: dict[str, dict[str, Any]], cell: str) -> dict[str, Any]:
+    """Effective (panel baseline + type/weld override) properties for a weld cell.
+
+    Returns the resolved property dict for ``cell`` (from
+    :func:`resolve_weld_properties`) with identity fields already present as CSV
+    columns (see :data:`_PROP_EXCLUDE`) stripped out. This is what lets each weld
+    row carry the panel's properties and any overrides that apply to it.
+    """
+    props = props_by_id.get(cell, {})
+    return {k: v for k, v in props.items() if k not in _PROP_EXCLUDE}
+
+
+def _write_weld_csv(path: Path, rows: list[dict[str, Any]], id_cols: list[str]) -> None:
+    """Write weld ``rows`` to ``path`` with a header of identity + property columns.
+
+    ``id_cols`` are the fixed leading columns (e.g. panel, weld_id, source); every
+    other key seen across ``rows`` — the resolved panel properties and weld
+    overrides — is appended as a property column in first-seen order. Rows missing
+    a given property leave that cell blank.
+    """
+    prop_cols: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in id_cols and key not in prop_cols:
+                prop_cols.append(key)
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=id_cols + prop_cols, restval="")
+        writer.writeheader()
+        writer.writerows(rows)
+
 
 def _regenerate_all_csv_files(directory: Path) -> str:
     """Load all .weldb files, extract all weld types, write three CSV files.
 
     Generates:
       - point_welds.csv  — one row per point weld (deduplicated across views)
-      - linear_welds.csv — one row per linear weld ID (with cell count)
-      - area_welds.csv   — one row per area weld ID (with cell count)
+      - linear_welds.csv — one row per linear weld ID
+      - area_welds.csv   — one row per area weld ID
+
+    Each row also carries the weld's effective properties — the panel's top-level
+    properties (material, OD, wall, units, elevation, any custom fields) merged
+    with the type-level and weld-specific overrides that apply to it (e.g. a
+    linear weld's length, an area weld's height). Property columns are the union
+    of keys seen across the rows; a weld missing a property leaves it blank.
 
     Files that raise exceptions are moved to quarantine/.
     Returns a status message.
@@ -311,15 +352,20 @@ def _regenerate_all_csv_files(directory: Path) -> str:
                 continue
             views = maps[-1].get("views", [])
 
-            # -- Point welds (deduplicated across views) --
-            file_points: dict[str, tuple[int, int]] = {}
-            for view in views:
-                for r, row in enumerate(view.get("grid", [])):
-                    for c, cell in enumerate(row):
-                        if cell.startswith("*") and cell not in file_points:
-                            file_points[cell] = (r, c)
+            # Effective properties per weld (panel baseline + overrides), used to
+            # enrich every row below so the CSV carries panel properties and weld
+            # overrides alongside each weld.
+            props_by_id = resolve_weld_properties(doc)
 
-            for cell, (r, c) in file_points.items():
+            # -- Point welds (deduplicated across views) --
+            file_points: dict[str, None] = {}
+            for view in views:
+                for row in view.get("grid", []):
+                    for cell in row:
+                        if cell.startswith("*"):
+                            file_points.setdefault(cell, None)
+
+            for cell in file_points:
                 prefixed_id = prefix_weld_id(panel_name, cell)
                 if prefixed_id in seen_points:
                     raise ValueError(
@@ -330,41 +376,40 @@ def _regenerate_all_csv_files(directory: Path) -> str:
                 point_rows.append({
                     "panel": panel_name,
                     "weld_id": prefixed_id,
-                    "row": r,
-                    "col": c,
                     "source": filepath.name,
+                    **_weld_props(props_by_id, cell),
                 })
 
-            # -- Linear welds (unique IDs, cell count) --
-            linear_groups: dict[str, int] = {}
+            # -- Linear welds (unique IDs) --
+            linear_ids: dict[str, None] = {}
             for view in views:
                 for row in view.get("grid", []):
                     for cell in row:
                         if cell.startswith("_"):
-                            linear_groups[cell] = linear_groups.get(cell, 0) + 1
+                            linear_ids.setdefault(cell, None)
 
-            for cell, count in linear_groups.items():
+            for cell in linear_ids:
                 linear_rows.append({
                     "panel": panel_name,
                     "weld_id": prefix_weld_id(panel_name, cell),
-                    "cells": count,
                     "source": filepath.name,
+                    **_weld_props(props_by_id, cell),
                 })
 
-            # -- Area welds (unique IDs, cell count) --
-            area_groups: dict[str, int] = {}
+            # -- Area welds (unique IDs) --
+            area_ids: dict[str, None] = {}
             for view in views:
                 for row in view.get("grid", []):
                     for cell in row:
                         if cell.startswith("@"):
-                            area_groups[cell] = area_groups.get(cell, 0) + 1
+                            area_ids.setdefault(cell, None)
 
-            for cell, count in area_groups.items():
+            for cell in area_ids:
                 area_rows.append({
                     "panel": panel_name,
                     "weld_id": prefix_weld_id(panel_name, cell),
-                    "cells": count,
                     "source": filepath.name,
+                    **_weld_props(props_by_id, cell),
                 })
 
         except Exception as exc:
@@ -375,26 +420,16 @@ def _regenerate_all_csv_files(directory: Path) -> str:
 
     good_files = len(files) - len(quarantined)
 
-    # Write point_welds.csv
+    # Write the three CSVs. Identity columns lead; the resolved panel properties
+    # and weld overrides follow as property columns (grid row/col are not exported).
     point_csv = directory / "point_welds.csv"
-    with open(point_csv, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["panel", "weld_id", "row", "col", "source"])
-        writer.writeheader()
-        writer.writerows(point_rows)
+    _write_weld_csv(point_csv, point_rows, ["panel", "weld_id", "source"])
 
-    # Write linear_welds.csv
     linear_csv = directory / "linear_welds.csv"
-    with open(linear_csv, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["panel", "weld_id", "cells", "source"])
-        writer.writeheader()
-        writer.writerows(linear_rows)
+    _write_weld_csv(linear_csv, linear_rows, ["panel", "weld_id", "source"])
 
-    # Write area_welds.csv
     area_csv = directory / "area_welds.csv"
-    with open(area_csv, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["panel", "weld_id", "cells", "source"])
-        writer.writeheader()
-        writer.writerows(area_rows)
+    _write_weld_csv(area_csv, area_rows, ["panel", "weld_id", "source"])
 
     lines = [
         f"From {good_files} file(s) in {directory}:",
@@ -623,7 +658,19 @@ def extract_weld_positions(
     canvas_h: float | None = None,
     include_text: bool = False,
 ) -> str:
-    """Extract the on-drawing position of every weld in a panel to a JSON file.
+    """Locate every weld on the panel's rendered PDF, as a JSON coordinate map.
+
+    Use this to find where each weld sits **on the PDF that render_pdf produces**
+    — e.g. to drop a pin, highlight, or clickable hotspot onto that drawing. The
+    coordinates describe the rendered PDF page, NOT the .weldb source; the typical
+    workflow is render_pdf(panel) to produce the sheet, then this tool to get the
+    weld boxes that line up with it.
+
+    Note the ``panel_name`` argument is the panel's file stem (the same one you
+    pass to render_pdf), e.g. ``N5`` — do NOT pass a ``.pdf`` (or ``.weldb``) file
+    path or name. The tool reads the ``.weldb`` panel and derives the PDF geometry
+    internally from the identical layout math render_pdf uses, so no PDF file has
+    to exist first.
 
     Writes ``<panel_name>_weld_positions.json`` into the user's project folder
     (next to the panel) and returns its content. For each weld region the JSON
@@ -643,7 +690,8 @@ def extract_weld_positions(
     to keep the file device-independent.
 
     Args:
-        panel_name: Panel identifier (file stem, e.g. N5).
+        panel_name: Panel identifier — the file stem only (e.g. N5), not a
+            filename or path and not a .pdf.
         project_path: The user's project folder holding the panel file; the JSON
             is written here too.
         canvas_w: Optional target canvas width in pixels (enables px output).
@@ -728,6 +776,55 @@ def render_revision_history(panel_name: str, project_path: str | None = None) ->
         return f"Failed to render revision history for {filepath.name}: {exc}"
 
     return f"Wrote {written} ({n_revs} revision(s))"
+
+
+@mcp.tool()
+def render_pdf(
+    panel_name: str, project_path: str | None = None, color: bool = False
+) -> str:
+    """Render a project panel to a single-sheet vector engineering-drawing PDF.
+
+    Writes ``<panel_name>.pdf`` into the user's project folder (next to the panel
+    file) from the panel's latest revision. The sheet has a double-width border;
+    the top 80% holds the views (drawn left to right, each grid scaled to fill its
+    box, an empty back/cold view mirrored from its non-empty sibling); a
+    double-width line separates the bottom 20% title block (properties, legend and
+    weld tallies, and the most recent revisions that fit). This is the panel's own
+    drawing — for the read-only bundled catalog use render_example instead.
+
+    Args:
+        panel_name: Panel identifier (file stem, e.g. N5).
+        project_path: The user's project folder holding the panel file; the PDF
+            is written here too.
+        color: When true, grid cells are tinted with light, text-safe colors
+            (grey for blank cells, pastel green/blue/orange for point/linear/area
+            welds; plain-label cells stay white) and the legend gains matching
+            swatches. The default renders black-on-white.
+
+    Requires the optional fpdf2 dependency (pip install weldb[pdf]).
+    """
+    directory = _find_project_dir(project_path)
+    guard = _reject_code_dir(directory)
+    if guard:
+        return guard
+    filepath = _resolve_panel_path(directory, panel_name)
+    if filepath is None:
+        return f"Invalid panel name '{panel_name}'."
+    if not filepath.exists():
+        return f"Panel file not found: {filepath}"
+
+    try:
+        from weldb import render_pdf as _render_pdf
+    except ImportError as exc:
+        return f"PDF rendering unavailable: {exc}"
+
+    out_path = directory / f"{panel_name}.pdf"
+    try:
+        written = _render_pdf(filepath, color=color, output_path=out_path)
+    except Exception as exc:  # noqa: BLE001 — surface the failure to the caller
+        return f"Failed to render {filepath.name}: {exc}"
+
+    return f"Wrote {written} ({'color' if color else 'black-and-white'})"
 
 
 @mcp.tool()
@@ -1065,10 +1162,14 @@ def regenerate_all_csv_files(project_path: str | None = None) -> str:
     """Regenerate all three CSV files from active .weldb files.
 
     Pass ``project_path`` pointing at the user's project folder. Produces
-    point_welds.csv, linear_welds.csv, and area_welds.csv in that folder. Call
-    this after creating, archiving, quarantining, or restoring panels to keep the
-    CSVs up to date. (A startup pass also runs against the server's working
-    directory, which is a no-op unless panels happen to live there.)
+    point_welds.csv, linear_welds.csv, and area_welds.csv in that folder. Each
+    weld row carries its effective properties — the panel's top-level properties
+    (material, OD, wall, units, elevation, custom fields) merged with the
+    type-level and weld-specific overrides that apply (e.g. linear length, area
+    height). Call this after creating, archiving, quarantining, or restoring
+    panels to keep the CSVs up to date. (A startup pass also runs against the
+    server's working directory, which is a no-op unless panels happen to live
+    there.)
     """
     directory = _find_project_dir(project_path)
     return _regenerate_all_csv_files(directory)
