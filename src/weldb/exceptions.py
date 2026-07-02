@@ -26,17 +26,6 @@ class MissingRequiredFieldError(WeldbError):
         )
 
 
-class DuplicatePointWeldError(WeldbError):
-    """Raised when a point weld identifier appears more than once in a grid."""
-
-    def __init__(self, weld_id: str, locations: list[tuple[int, int]]):
-        self.weld_id = weld_id
-        self.locations = locations
-        super().__init__(
-            f"Point weld '{weld_id}' is not unique — found at grid positions {locations}"
-        )
-
-
 class EmbeddedSpecialCharError(WeldbError):
     """Raised when *, _, or @ appears in a cell string but not as the first character."""
 

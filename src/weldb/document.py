@@ -22,32 +22,73 @@ OPTIONAL_FIELDS = {"elevation_at"}
 RESERVED_FIELDS = REQUIRED_FIELDS | OPTIONAL_FIELDS | {"weld_overrides"}
 
 
-def _validate_elevation(doc: dict[str, Any]) -> None:
-    """Ensure the required ``elevation`` field is present and non-empty.
+def _validate_required_fields(doc: dict[str, Any]) -> None:
+    """Ensure every field in :data:`REQUIRED_FIELDS` is present and non-empty.
 
-    ``elevation`` is a free-form string (a dimension or a temporary scaffold
-    floor level); its contents are not constrained, but it must not be empty.
+    A weldb document is a top-level mapping; a non-dict document (e.g. an empty
+    file that parses to ``None``) is rejected outright. ``elevation`` — and the
+    other required fields — are free-form, but none may be missing, ``None``, or
+    an empty/whitespace-only string. Raises :class:`MissingRequiredFieldError`
+    naming the first offending field.
     """
     if not isinstance(doc, dict):
-        return
-    value = doc.get("elevation")
-    if value is None or (isinstance(value, str) and not value.strip()):
-        raise MissingRequiredFieldError("elevation")
+        raise MissingRequiredFieldError("panel_name")
+    # Report in a stable, human-friendly order rather than set iteration order.
+    ordered = [
+        "panel_name", "tube_mtrl", "tube_od", "tube_wall", "units", "elevation", "maps",
+    ]
+    for field_name in ordered:
+        value = doc.get(field_name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise MissingRequiredFieldError(field_name)
+
+
+def _normalize_grids(doc: dict[str, Any]) -> None:
+    """Coerce grid cells to strings and pad every row to a rectangular grid.
+
+    Files written by hand or by other tools may carry unquoted numeric cells
+    (``250`` instead of ``'250'``) or rows of unequal length. Left as-is these
+    crash extraction (``'int' object is not subscriptable``) and rendering
+    (``IndexError`` on ragged rows). Normalizing here — once, at load — gives
+    every downstream consumer a uniform ``list[list[str]]`` grid. Mutates ``doc``
+    in place.
+    """
+    for mp in doc.get("maps", []) or []:
+        if not isinstance(mp, dict):
+            continue
+        for view in mp.get("views", []) or []:
+            if not isinstance(view, dict):
+                continue
+            grid = view.get("grid")
+            if not isinstance(grid, list):
+                continue
+            rows = [row if isinstance(row, list) else [] for row in grid]
+            width = max((len(row) for row in rows), default=0)
+            view["grid"] = [
+                ["" if cell is None else str(cell) for cell in row]
+                + [""] * (width - len(row))
+                for row in rows
+            ]
 
 
 def load(path: str | Path) -> dict[str, Any]:
     """Load a .weldb YAML file and return it as a dict.
 
     Raises InvalidFileExtensionError if the file does not end with .weldb.
-    Raises MissingRequiredFieldError if the required ``elevation`` field is
-    missing or empty.
+    Raises MissingRequiredFieldError if any required top-level field (see
+    :data:`REQUIRED_FIELDS`) is missing or empty.
+
+    Grid cells are coerced to strings and every row is padded to a rectangular
+    grid, so downstream extraction and rendering always see a uniform
+    ``list[list[str]]``.
     """
     path = Path(path)
     if path.suffix != FILE_EXTENSION:
         raise InvalidFileExtensionError(str(path), FILE_EXTENSION)
     with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
-    _validate_elevation(doc)
+    _validate_required_fields(doc)
+    _normalize_grids(doc)
     return doc
 
 

@@ -48,6 +48,12 @@ A view whose grid is entirely empty is **not** drawn as a blank box. Instead:
 Mirroring is **display-only**: weld tallies and the weld record come from the
 stored grids, so a mirrored weld is never double-counted.
 
+This empty/back-view mirroring applies to the **PDF** renderer only. The
+monospace renderer intentionally renders each view's stored grid as-is (an empty
+grid is skipped, not mirrored), since terminal output is a quick text dump rather
+than a drawing. The two renderers therefore differ on empty back views by
+design.
+
 ## Cell Rendering Rules
 
 ### Point Welds

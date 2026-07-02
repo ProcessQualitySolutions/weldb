@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from weldb.document import load
-from weldb.welds import get_point_welds
+from weldb.welds import WELD_PREFIXES, get_point_welds
 from weldb.exceptions import DuplicateWeldAcrossFilesError
 from weldb.models import PointWeld
 
@@ -17,11 +17,12 @@ WELD_ID_SEPARATOR = "."
 def prefix_weld_id(panel_name: str, weld_id: str) -> str:
     """Join a panel name to a weld ID using the project separator.
 
-    The weld ID may still carry its grid type prefix (``*``/``_``/``@``);
-    it is stripped before joining. For example, ``("N5", "*T250")`` ->
-    ``"N5.T250"``.
+    The weld ID may still carry its grid type prefix (``*``/``_``/``@``); the
+    single leading prefix character (and only that one) is stripped before
+    joining. For example, ``("N5", "*T250")`` -> ``"N5.T250"``.
     """
-    return f"{panel_name}{WELD_ID_SEPARATOR}{weld_id.lstrip('*_@')}"
+    base = weld_id[1:] if weld_id[:1] in WELD_PREFIXES else weld_id
+    return f"{panel_name}{WELD_ID_SEPARATOR}{base}"
 
 
 def build_weld_log(directory: str | Path) -> list[PointWeld]:

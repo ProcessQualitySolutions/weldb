@@ -14,13 +14,21 @@ import csv
 import datetime
 import re
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from weldb import load, prefix_weld_id, resolve_weld_properties, save
+from weldb import (
+    custom_field_setter,
+    get_area_welds,
+    get_linear_welds,
+    get_point_welds,
+    load,
+    prefix_weld_id,
+    resolve_weld_properties,
+    save,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -91,7 +99,10 @@ VALID_UNITS = ["mm", "ft_in", "in", "dec_in", "dec_ft"]
 def _find_project_dir(path: str | None) -> Path:
     """Resolve the user's project directory from an optional path argument.
 
-    When ``path`` is given it is used (its parent if it points at a file); when
+    When ``path`` is given it is used as the project directory. If it points at
+    an existing *file* its containing folder is used; if it does not exist yet it
+    is returned as-is (a plausible first-run folder that ``create_panel`` will
+    ``mkdir``) rather than silently redirecting to its parent. When ``path`` is
     omitted it falls back to :data:`DEFAULT_PROJECT_DIR` (the current working
     directory). It deliberately does NOT default to the bundled examples catalog
     — panels live in the agent's project folder, which should be passed
@@ -99,7 +110,7 @@ def _find_project_dir(path: str | None) -> Path:
     """
     if path:
         p = Path(path)
-        return p if p.is_dir() else p.parent
+        return p.parent if p.is_file() else p
     return DEFAULT_PROJECT_DIR
 
 
@@ -167,7 +178,7 @@ def _first_comment_line(path: Path) -> str:
     an empty string if the file has no leading comment.
     """
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
                 stripped = line.strip()
                 if not stripped:
@@ -300,7 +311,7 @@ def _write_weld_csv(path: Path, rows: list[dict[str, Any]], id_cols: list[str]) 
         for key in row:
             if key not in id_cols and key not in prop_cols:
                 prop_cols.append(key)
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=id_cols + prop_cols, restval="")
         writer.writeheader()
         writer.writerows(rows)
@@ -320,7 +331,14 @@ def _regenerate_all_csv_files(directory: Path) -> str:
     linear weld's length, an area weld's height). Property columns are the union
     of keys seen across the rows; a weld missing a property leaves it blank.
 
-    Files that raise exceptions are moved to quarantine/.
+    Weld extraction goes through the library extractors
+    (:func:`get_point_welds` / :func:`get_linear_welds` / :func:`get_area_welds`),
+    so the CSVs get the library's full validation for free — a file the library
+    rejects (conflicting IDs, duplicate point welds, embedded special chars) is
+    reported and skipped, never partially written. Files that fail to load or
+    validate are **reported and skipped** — this routine never moves user files;
+    use the ``quarantine_panel`` tool to quarantine a file deliberately.
+
     Returns a status message.
     """
     guard = _reject_code_dir(directory)
@@ -331,94 +349,77 @@ def _regenerate_all_csv_files(directory: Path) -> str:
     if not files:
         return f"No .weldb files in {directory} — skipped CSV generation."
 
-    quarantine = _quarantine_dir(directory)
-
     point_rows: list[dict[str, Any]] = []
     linear_rows: list[dict[str, Any]] = []
     area_rows: list[dict[str, Any]] = []
 
     seen_points: dict[str, str] = {}  # prefixed_id -> source filename
-    quarantined: list[str] = []
+    skipped: list[str] = []
 
     for filepath in files:
         try:
-            # Validate via the library loader (same rules as render/extract), so a
-            # file that fails validation here also fails there — no drift.
+            # Extract via the library so the CSV path enforces the same
+            # validation as render/extract (no drift) and never sees ragged or
+            # non-string grids (load normalizes them).
             doc = load(filepath)
             panel_name = doc["panel_name"]
-
-            maps = doc.get("maps", [])
-            if not maps:
-                continue
-            views = maps[-1].get("views", [])
-
-            # Effective properties per weld (panel baseline + overrides), used to
-            # enrich every row below so the CSV carries panel properties and weld
-            # overrides alongside each weld.
             props_by_id = resolve_weld_properties(doc)
 
-            # -- Point welds (deduplicated across views) --
-            file_points: dict[str, None] = {}
-            for view in views:
-                for row in view.get("grid", []):
-                    for cell in row:
-                        if cell.startswith("*"):
-                            file_points.setdefault(cell, None)
+            point_welds = get_point_welds(doc)
+            linear_welds = get_linear_welds(doc)
+            area_welds = get_area_welds(doc)
 
-            for cell in file_points:
-                prefixed_id = prefix_weld_id(panel_name, cell)
+            # Detect cross-file point-weld duplicates *before* committing any of
+            # this file's rows, so a rejected file leaves the accumulators clean.
+            file_point_ids: dict[str, str] = {}  # local weld_id -> prefixed_id
+            for pw in point_welds:
+                prefixed_id = prefix_weld_id(panel_name, pw.weld_id)
                 if prefixed_id in seen_points:
                     raise ValueError(
                         f"Duplicate weld '{prefixed_id}' in "
                         f"{filepath.name} and {seen_points[prefixed_id]}"
                     )
+                file_point_ids[pw.weld_id] = prefixed_id
+
+            new_point_rows = [
+                {
+                    "panel": panel_name,
+                    "weld_id": file_point_ids[pw.weld_id],
+                    "source": filepath.name,
+                    **_weld_props(props_by_id, pw.weld_id),
+                }
+                for pw in point_welds
+            ]
+            new_linear_rows = [
+                {
+                    "panel": panel_name,
+                    "weld_id": prefix_weld_id(panel_name, lw.weld_id),
+                    "source": filepath.name,
+                    **_weld_props(props_by_id, lw.weld_id),
+                }
+                for lw in linear_welds
+            ]
+            new_area_rows = [
+                {
+                    "panel": panel_name,
+                    "weld_id": prefix_weld_id(panel_name, aw.weld_id),
+                    "source": filepath.name,
+                    **_weld_props(props_by_id, aw.weld_id),
+                }
+                for aw in area_welds
+            ]
+
+            # Commit only after the whole file extracted cleanly.
+            for prefixed_id in file_point_ids.values():
                 seen_points[prefixed_id] = filepath.name
-                point_rows.append({
-                    "panel": panel_name,
-                    "weld_id": prefixed_id,
-                    "source": filepath.name,
-                    **_weld_props(props_by_id, cell),
-                })
+            point_rows.extend(new_point_rows)
+            linear_rows.extend(new_linear_rows)
+            area_rows.extend(new_area_rows)
 
-            # -- Linear welds (unique IDs) --
-            linear_ids: dict[str, None] = {}
-            for view in views:
-                for row in view.get("grid", []):
-                    for cell in row:
-                        if cell.startswith("_"):
-                            linear_ids.setdefault(cell, None)
+        except Exception as exc:  # noqa: BLE001 — report and skip, never mutate
+            skipped.append(f"{filepath.name}: {exc}")
 
-            for cell in linear_ids:
-                linear_rows.append({
-                    "panel": panel_name,
-                    "weld_id": prefix_weld_id(panel_name, cell),
-                    "source": filepath.name,
-                    **_weld_props(props_by_id, cell),
-                })
-
-            # -- Area welds (unique IDs) --
-            area_ids: dict[str, None] = {}
-            for view in views:
-                for row in view.get("grid", []):
-                    for cell in row:
-                        if cell.startswith("@"):
-                            area_ids.setdefault(cell, None)
-
-            for cell in area_ids:
-                area_rows.append({
-                    "panel": panel_name,
-                    "weld_id": prefix_weld_id(panel_name, cell),
-                    "source": filepath.name,
-                    **_weld_props(props_by_id, cell),
-                })
-
-        except Exception as exc:
-            quarantine.mkdir(exist_ok=True)
-            dest = quarantine / filepath.name
-            shutil.move(str(filepath), str(dest))
-            quarantined.append(f"{filepath.name}: {exc}")
-
-    good_files = len(files) - len(quarantined)
+    good_files = len(files) - len(skipped)
 
     # Write the three CSVs. Identity columns lead; the resolved panel properties
     # and weld overrides follow as property columns (grid row/col are not exported).
@@ -437,19 +438,15 @@ def _regenerate_all_csv_files(directory: Path) -> str:
         f"  {linear_csv.name}: {len(linear_rows)} linear welds",
         f"  {area_csv.name}: {len(area_rows)} area welds",
     ]
-    if quarantined:
-        lines.append(f"Quarantined {len(quarantined)} file(s):")
-        for q in quarantined:
-            lines.append(f"  {q}")
+    if skipped:
+        lines.append(f"Skipped {len(skipped)} file(s) (not modified):")
+        for s in skipped:
+            lines.append(f"  {s}")
+        lines.append(
+            "Fix the reported issues (or quarantine the file with quarantine_panel) "
+            "and re-run."
+        )
     return "\n".join(lines)
-
-
-# Run CSV generation at import/startup time against the default project directory
-# (the working directory the server was launched in) — NOT the examples catalog.
-# When the working directory holds no panels this is a harmless no-op; agents drive
-# the real work by passing project_path to regenerate_all_csv_files.
-_startup_msg = _regenerate_all_csv_files(DEFAULT_PROJECT_DIR)
-print(_startup_msg, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +513,7 @@ def read_panel(panel_name: str, project_path: str | None = None) -> str:
         return f"Invalid panel name '{panel_name}'."
     if not filepath.exists():
         return f"Panel file not found: {filepath}"
-    return filepath.read_text()
+    return filepath.read_text(encoding="utf-8")
 
 
 @mcp.tool()
@@ -612,7 +609,14 @@ def create_panel(
 
     if custom_fields:
         for k, v in custom_fields.items():
-            doc[k] = v
+            try:
+                custom_field_setter(doc, k, v)
+            except ValueError as exc:
+                return (
+                    f"Invalid custom field '{k}': {exc} "
+                    "Pass reserved fields (panel_name, units, elevation, etc.) as "
+                    "their own arguments, not in custom_fields."
+                )
 
     doc["maps"] = [
         {
@@ -636,7 +640,7 @@ def create_panel(
         load(filepath)
     except Exception as exc:  # noqa: BLE001 — surface the failure and clean up
         filepath.unlink(missing_ok=True)
-        return f"create_panel produced an invalid file and aborted (no file written): {exc}"
+        return f"create_panel produced an invalid file; it was removed and no panel was created: {exc}"
 
     num_tubes = tube_end - tube_start + 1
     point_welds = num_tubes * 2  # top + bottom per tube
@@ -861,7 +865,7 @@ def list_docs() -> str:
     lines = ["Available documentation:", ""]
     for f in md_files:
         first_line = ""
-        with open(f) as fh:
+        with open(f, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if line.startswith("# "):
@@ -875,7 +879,7 @@ def list_docs() -> str:
 def read_doc(filename: str) -> str:
     """Read the full content of a specification or documentation file.
 
-    Pass the filename (e.g., 'drawing_spec.md', 'philosophy.md',
+    Pass the filename (e.g., 'drawing_spec.md', 'weldb_design_philosophy.md',
     'panel_naming_convention.md'). Only .md files in the project root
     are accessible.
     """
@@ -883,14 +887,16 @@ def read_doc(filename: str) -> str:
         return "Only .md files can be read with this tool."
 
     filepath = SPEC_DIR / filename
-    if not filepath.exists():
-        return f"File not found: {filename}. Use list_docs to see available files."
 
-    # Prevent path traversal
+    # Prevent path traversal — check this BEFORE exists() so the response never
+    # leaks whether an arbitrary path outside the spec dir exists.
     if not filepath.resolve().parent == SPEC_DIR.resolve():
         return "Access denied."
 
-    return filepath.read_text()
+    if not filepath.exists():
+        return f"File not found: {filename}. Use list_docs to see available files."
+
+    return filepath.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -965,7 +971,7 @@ def read_example_file(example: str, filename: str) -> str:
             f"File '{filename}' not found in example '{example}'. "
             f"Use list_example_files('{example}') to see what's available."
         )
-    return filepath.read_text()
+    return filepath.read_text(encoding="utf-8")
 
 
 @mcp.tool()
@@ -1167,9 +1173,9 @@ def regenerate_all_csv_files(project_path: str | None = None) -> str:
     (material, OD, wall, units, elevation, custom fields) merged with the
     type-level and weld-specific overrides that apply (e.g. linear length, area
     height). Call this after creating, archiving, quarantining, or restoring
-    panels to keep the CSVs up to date. (A startup pass also runs against the
-    server's working directory, which is a no-op unless panels happen to live
-    there.)
+    panels to keep the CSVs up to date. Files that fail to load or validate are
+    reported and skipped (never moved) — fix them, or quarantine them explicitly
+    with quarantine_panel, then re-run.
     """
     directory = _find_project_dir(project_path)
     return _regenerate_all_csv_files(directory)

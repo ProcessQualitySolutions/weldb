@@ -368,15 +368,22 @@ class WeldbEditor:
             self.notebook.add(frame, text="(none)")
             return
 
+        # weldb history is append-only: only the latest map (revision) is the
+        # authoritative, editable layout. Grids from earlier revisions are shown
+        # read-only so the visual editor does not silently rewrite history.
+        last_map = max(mi for mi, *_ in grids)
         for mi, vi, rev, name, grid in grids:
-            self._build_grid_tab(mi, vi, rev, name, grid)
+            self._build_grid_tab(mi, vi, rev, name, grid, editable=(mi == last_map))
 
         if 0 <= prev < len(self.notebook.tabs()):
             self.notebook.select(prev)
 
-    def _build_grid_tab(self, mi: int, vi: int, rev: str, name: str, grid: list):
+    def _build_grid_tab(
+        self, mi: int, vi: int, rev: str, name: str, grid: list, editable: bool = True
+    ):
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text=f"{rev} · {name}")
+        marker = "" if editable else " (read-only)"
+        self.notebook.add(tab, text=f"{rev} · {name}{marker}")
 
         rows = len(grid)
         cols = max((len(r) for r in grid), default=0)
@@ -385,13 +392,18 @@ class WeldbEditor:
         top = ttk.Frame(tab, padding=(4, 4))
         top.pack(side=tk.TOP, fill=tk.X)
         ttk.Label(top, text=f"{rows} × {cols}").pack(side=tk.LEFT)
-        for txt, cmd in (
-            ("+Row", lambda: self._add_row(mi, vi)),
-            ("−Row", lambda: self._del_row(mi, vi)),
-            ("+Col", lambda: self._add_col(mi, vi)),
-            ("−Col", lambda: self._del_col(mi, vi)),
-        ):
-            ttk.Button(top, text=txt, width=6, command=cmd).pack(side=tk.LEFT, padx=(8, 0))
+        if editable:
+            for txt, cmd in (
+                ("+Row", lambda: self._add_row(mi, vi)),
+                ("−Row", lambda: self._del_row(mi, vi)),
+                ("+Col", lambda: self._add_col(mi, vi)),
+                ("−Col", lambda: self._del_col(mi, vi)),
+            ):
+                ttk.Button(top, text=txt, width=6, command=cmd).pack(side=tk.LEFT, padx=(8, 0))
+        else:
+            ttk.Label(
+                top, text="historical revision — append a new revision to change the layout"
+            ).pack(side=tk.LEFT, padx=(8, 0))
 
         # Scrollable cell area.
         body = ttk.Frame(tab)
@@ -443,12 +455,15 @@ class WeldbEditor:
                     bg=cell_fill(value),
                 )
                 entry.grid(row=r + 1, column=c + 1, sticky="nsew")
-                var.trace_add(
-                    "write",
-                    lambda *_a, mi=mi, vi=vi, r=r, c=c, var=var, entry=entry: self._on_cell_edit(
-                        mi, vi, r, c, var, entry
-                    ),
-                )
+                if editable:
+                    var.trace_add(
+                        "write",
+                        lambda *_a, mi=mi, vi=vi, r=r, c=c, var=var, entry=entry: self._on_cell_edit(
+                            mi, vi, r, c, var, entry
+                        ),
+                    )
+                else:
+                    entry.configure(state="readonly", readonlybackground=cell_fill(value))
 
     def _on_cell_edit(self, mi, vi, r, c, var, entry):
         value = var.get()
@@ -527,20 +542,35 @@ class WeldbEditor:
 
 
 def _bind_wheel(canvas: tk.Canvas):
-    """Vertical/horizontal mouse-wheel scrolling while the pointer is over canvas."""
+    """Vertical/horizontal mouse-wheel scrolling while the pointer is over canvas.
+
+    Handles both the Windows/macOS ``<MouseWheel>`` event (with ``event.delta``)
+    and the X11/Linux ``<Button-4>``/``<Button-5>`` events, so scrolling works on
+    all three platforms.
+    """
     def _on_wheel(event):
         canvas.yview_scroll(int(-event.delta / 120), "units")
 
     def _on_shift_wheel(event):
         canvas.xview_scroll(int(-event.delta / 120), "units")
 
+    def _on_button4(_event):  # X11 wheel up
+        canvas.yview_scroll(-1, "units")
+
+    def _on_button5(_event):  # X11 wheel down
+        canvas.yview_scroll(1, "units")
+
     canvas.bind("<Enter>", lambda e: (
         canvas.bind_all("<MouseWheel>", _on_wheel),
         canvas.bind_all("<Shift-MouseWheel>", _on_shift_wheel),
+        canvas.bind_all("<Button-4>", _on_button4),
+        canvas.bind_all("<Button-5>", _on_button5),
     ))
     canvas.bind("<Leave>", lambda e: (
         canvas.unbind_all("<MouseWheel>"),
         canvas.unbind_all("<Shift-MouseWheel>"),
+        canvas.unbind_all("<Button-4>"),
+        canvas.unbind_all("<Button-5>"),
     ))
 
 

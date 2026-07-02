@@ -6,8 +6,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-from weldb.document import FILE_EXTENSION, RESERVED_FIELDS
+from weldb.document import RESERVED_FIELDS
 from weldb.welds import Grid, _current_views, resolve_weld_properties
+
+
+def _grid_has_prefix(doc: dict[str, Any], prefix: str) -> bool:
+    """True if any cell in the current map starts with ``prefix`` (``*``/``_``/``@``)."""
+    return any(
+        k.startswith(prefix)
+        for v in _current_views(doc)
+        for row in v["grid"]
+        for k in row
+    )
 
 
 def _linear_weld_length_tally(doc: dict[str, Any]) -> tuple[bool, float]:
@@ -43,7 +53,7 @@ def _area_weld_tally(doc: dict[str, Any]) -> tuple[bool, float]:
         height = p.get("height")
         if length is None or height is None:
             return False, 0.0
-        total += int(length) * int(height)
+        total += float(length) * float(height)
     return True, total
 
 
@@ -130,9 +140,6 @@ def _render_grid(grid: Grid, col_width: int = 8) -> str:
                 c += span_len
             elif (r, c) in skip:
                 c += 1
-            elif cell.startswith("*"):
-                content_parts.append(cell.center(col_width) + "|")
-                c += 1
             else:
                 content_parts.append(cell.center(col_width) + "|")
                 c += 1
@@ -185,14 +192,14 @@ def render_monospace(doc: dict[str, Any], col_width: int = 8) -> str:
     if all_have_length:
         units = doc.get("units", "")
         sections.append(f"Total linear weld length: {total:g} {units}")
-    else:
+    elif _grid_has_prefix(doc, "_"):
         sections.append("Linear weld length not recorded")
 
     all_have_dims, total_area = _area_weld_tally(doc)
     if all_have_dims:
         units = doc.get("units", "")
         sections.append(f"Total area weld: {total_area:g} {units}^2")
-    elif any(k.startswith("@") for v in _current_views(doc) for row in v["grid"] for k in row):
+    elif _grid_has_prefix(doc, "@"):
         sections.append("Area weld dimensions not recorded")
 
     return "\n\n".join(sections)
@@ -693,15 +700,17 @@ def _draw_title_block(
     cy += 1.0
     all_len, total_len = _linear_weld_length_tally(doc)
     units = doc.get("units", "")
-    lin_text = (
-        f"Linear total: {total_len:g} {units}" if all_len else "Linear length not recorded"
-    )
-    pdf.set_xy(mid_x + 2, cy)
-    pdf.cell(mid_w - 3, 3.3, _truncate(pdf, lin_text, mid_w - 3))
-    cy += 3.5
+    has_linear = _grid_has_prefix(doc, "_")
+    if has_linear:
+        lin_text = (
+            f"Linear total: {total_len:g} {units}" if all_len else "Linear length not recorded"
+        )
+        pdf.set_xy(mid_x + 2, cy)
+        pdf.cell(mid_w - 3, 3.3, _truncate(pdf, lin_text, mid_w - 3))
+        cy += 3.5
 
     all_dims, total_area = _area_weld_tally(doc)
-    has_area = any(k.startswith("@") for v in _current_views(doc) for row in v["grid"] for k in row)
+    has_area = _grid_has_prefix(doc, "@")
     if has_area:
         area_text = (
             f"Area total: {total_area:g} {units}^2" if all_dims else "Area dims not recorded"

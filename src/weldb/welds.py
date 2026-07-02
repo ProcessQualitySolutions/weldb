@@ -153,8 +153,10 @@ def get_area_welds(doc: dict[str, Any]) -> list[AreaWeld]:
     return [AreaWeld(weld_id=wid, cells=locs) for wid, locs in groups.items()]
 
 
-# Fields that are never inherited by welds.
-_NON_INHERITABLE = {"maps", "weld_overrides"}
+# Fields that are never inherited by welds: structural containers plus the
+# panel identity (``panel_name``), which is already carried by the prefixed weld
+# ID and so should not reappear as a per-weld property.
+_NON_INHERITABLE = {"maps", "weld_overrides", "panel_name"}
 
 
 def resolve_weld_properties(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -170,9 +172,13 @@ def resolve_weld_properties(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
     3. **Weld-specific override** — weld ID key in ``weld_overrides``.
     """
     # 1. Collect inheritable top-level fields (strings and numbers only).
+    #    ``bool`` is a subclass of ``int`` but is not a weld property, so it is
+    #    excluded explicitly.
     baseline: dict[str, Any] = {}
     for k, v in doc.items():
         if k in _NON_INHERITABLE:
+            continue
+        if isinstance(v, bool):
             continue
         if isinstance(v, (str, int, float)):
             baseline[k] = v

@@ -69,20 +69,24 @@ its grid is laid out.
 
 | Folder | Demonstrates |
 |--------|--------------|
-| `conventional_panel/` | Baseline layout: vertical tubes joined by membrane bars. |
-| `antler_panel/` | Conventional panel with the outermost tubes bent out (top welds offset to the side and lower). |
+| `conventional_panel_simplified_membrane_style/` | Baseline layout to copy from: vertical tubes joined by membrane bars. |
+| `conventional_panel_extended_membrane_style/` | Conventional water-wall panel drawn in the extended membrane style. |
+| `antler_panel/` | Conventional panel whose two outermost tubes are bent away (top welds offset). |
 | `adjacent_panels/` | Two panels side by side on the same wall (consecutive tubes). |
 | `stacked_panels/` | Two panels stacked vertically on the same tubes (clean seam). |
 | `overlapping_panels/` | Stacked panels whose vertical coverage overlaps (same width). |
-| `panel_with_clips/` | Cold-side attachment clips (`_CA`, `_CB`, ...). |
-| `port_panel/` | Plain-text port/opening labels (`IR`, `OBS`). |
-| `single_tube_dutchman/` | One tube's section replaced by a dutchman (`*B…DT`/`*B…DB`). |
-| `single_tube_dutchman_group/` | Many single-tube dutchmen across a wide panel; every membrane replaced full-length. |
-| `panel_with_repair_dutchman/` | A dutchman redlined in via an appended revision (append-only history). |
-| `two_view_panel/` | Two genuinely different views: hot-side welds plus cold-side clips. |
+| `panel_with_clips_and_two_views/` | Cold-side attachment clips across two genuinely different views. |
+| `port_panel/` | Plain-text port/opening labels (openings and inspection points, not welds). |
+| `dutchman_single_tube/` | One tube's section replaced by a dutchman. |
+| `dutchmen_single_tube_group/` | A few scattered single-tube dutchmen across a wide panel. |
+| `dutchman_used_to_replace_failed_weld/` | A dutchman redlined in via an appended revision (append-only history). |
 | `three_revision_panel/` | Append-only history across three revisions (two dutchman repairs). |
-| `complex_panel/` | Every weld type on one map: point, membrane/peanut, an area (cladding) weld, and a port. |
-| `transition_belt_panel/` | A belt transition splits each tube column with `*BTT…`/`*BTB…` welds. |
+| `complex_panel/` | Every weld type on one map (extended membrane style, multi-revision). |
+| `cladding_full_panel/` | A conventional panel fully clad after install. |
+| `cladding_partial_panel/` | Cladding applied only over certain areas. |
+| `cladding_repair/` | Existing tubes with damage repaired with cladding. |
+| `large_panel/` | Large single-view water-wall panel (30 tubes, extended membrane style). |
+| `transition_belt_panel/` | A mid-panel belt where alternating tubes transition. |
 
 The MCP server exposes these through `list_examples`, `list_example_files`,
 `read_example_file`, and `render_example` (renders an example to PDF).
@@ -94,4 +98,4 @@ The MCP server exposes these through `list_examples`, `list_example_files`,
 - [panel_naming_convention.md](panel_naming_convention.md) — panel naming
 - [weld_naming_convention.md](weld_naming_convention.md) — recommended weld IDs
 - [project_spec.md](project_spec.md) — project structure and file lifecycle
-- [philosophy.md](philosophy.md) — design principles
+- [weldb_design_philosophy.md](weldb_design_philosophy.md) — design principles
