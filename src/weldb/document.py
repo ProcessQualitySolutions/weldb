@@ -71,6 +71,31 @@ def _normalize_grids(doc: dict[str, Any]) -> None:
             ]
 
 
+def loads(text: str) -> dict[str, Any]:
+    """Parse a .weldb document from a YAML **string** and return it as a dict.
+
+    The string counterpart of :func:`load` — same validation and grid
+    normalization, but no filesystem access and no extension check (a string has
+    no filename). Use this to validate/parse content supplied by a caller (e.g.
+    an MCP client that holds the file itself) without touching disk.
+
+    Raises MissingRequiredFieldError if any required top-level field is missing.
+    """
+    doc = yaml.safe_load(text)
+    _validate_required_fields(doc)
+    _normalize_grids(doc)
+    return doc
+
+
+def dumps(doc: dict[str, Any]) -> str:
+    """Serialize a weldb document dict to a YAML **string**.
+
+    The string counterpart of :func:`save`: returns exactly the text ``save``
+    would write, without touching disk, so a caller can persist it itself.
+    """
+    return yaml.dump(doc, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+
 def load(path: str | Path) -> dict[str, Any]:
     """Load a .weldb YAML file and return it as a dict.
 
@@ -86,10 +111,7 @@ def load(path: str | Path) -> dict[str, Any]:
     if path.suffix != FILE_EXTENSION:
         raise InvalidFileExtensionError(str(path), FILE_EXTENSION)
     with open(path, encoding="utf-8") as f:
-        doc = yaml.safe_load(f)
-    _validate_required_fields(doc)
-    _normalize_grids(doc)
-    return doc
+        return loads(f.read())
 
 
 def save(doc: dict[str, Any], path: str | Path) -> None:
@@ -101,7 +123,7 @@ def save(doc: dict[str, Any], path: str | Path) -> None:
     if path.suffix != FILE_EXTENSION:
         raise InvalidFileExtensionError(str(path), FILE_EXTENSION)
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(doc, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        f.write(dumps(doc))
 
 
 def _next_rev(prev_rev: Any) -> str:

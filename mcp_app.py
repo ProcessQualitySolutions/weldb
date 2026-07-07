@@ -1,19 +1,36 @@
-"""weldb MCP Server — AI-assisted weld map management.
+"""weldb MCP Server — AI-assisted weld map management (stateless, logic-only).
 
-Provides tools for creating and inspecting boiler weld map panels,
-listing existing project files, reading specification documents, and
-browsing a catalog of worked example panels organized by arrangement.
+This server is a **pure logic and reference resource** for an AI agent. It holds
+NO project state and writes NO project files: every tool takes the ``.weldb``
+content it needs as input and returns generated content (YAML/CSV/JSON text, or a
+PDF as an embedded resource) for the agent to save on the user's own machine. The
+agent owns all local file I/O — creating, reading, listing, moving, and deleting
+``.weldb``/CSV/PDF files in the user's project folder.
 
-Run with:  python mcp_app.py
-Or:        mcp run mcp_app.py
+The only files the server reads are its own bundled, read-only reference assets:
+the specification ``.md`` documents and the worked-example ``.weldb`` catalog.
+This lets the server be hosted online as a lightweight, stateless service.
+
+Transports:
+  python mcp_app.py                 # stdio (default) — one local client
+  python mcp_app.py remote          # streamable-HTTP — many concurrent sessions
+  mcp run mcp_app.py                # stdio via the mcp CLI
+
+See ``main()`` for the remote flags (--host/--port/--path/--stateless/
+--json-response/--log-level).
 """
 
 from __future__ import annotations
 
+import argparse
+import base64
 import csv
 import datetime
+import io
+import json
+import os
 import re
-import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -21,62 +38,69 @@ from mcp.server.fastmcp import FastMCP
 
 from weldb import (
     custom_field_setter,
+    dumps,
     get_area_welds,
     get_linear_welds,
     get_point_welds,
-    load,
+    loads,
     prefix_weld_id,
+    render_pdf_bytes,
+    render_revision_history_pdf_bytes,
     resolve_weld_properties,
-    save,
+    weld_positions_data,
 )
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration — bundled, read-only reference assets only
 # ---------------------------------------------------------------------------
-
-# Code-bundled assets (ship with this server, independent of the user's project):
+#
+# The server ships two read-only asset trees, both anchored to THIS file's
+# location (not the working directory) so they resolve no matter where or how the
+# server is launched, and no matter which machine hosts it:
 #   SPEC_DIR     — the standards / specification .md files (drawing_spec, naming
 #                  conventions, philosophy) served by list_docs / read_doc.
-#   EXAMPLES_DIR — the read-only worked-example catalog browsed by the list_example*
-#                  / read_example_file / render_example tools.
-# Both are anchored to this file's location, NOT the working directory, so they
-# resolve correctly no matter where the server is launched from.
+#   EXAMPLES_DIR — the worked-example .weldb catalog browsed by list_examples /
+#                  list_example_files / read_example_file / render_example.
+# The server never writes into these (or anywhere else): it is stateless.
 CODE_DIR = Path(__file__).resolve().parent
 SPEC_DIR = CODE_DIR
 EXAMPLES_DIR = CODE_DIR / "examples"
-
-# The AGENT'S PROJECT DIRECTORY: where the .weldb panel files for the current job
-# live. This is the user's project folder — NOT the weldb code directory and NOT
-# the bundled examples catalog. Every panel tool takes an explicit `project_path`;
-# when omitted it falls back to the current working directory, but agents are
-# expected to pass the project folder explicitly.
-DEFAULT_PROJECT_DIR = Path.cwd()
 
 mcp = FastMCP(
     "weldb",
     instructions=(
         "You are a weld map database assistant. You help users create and manage "
         "boiler panel weld maps (.weldb files).\n\n"
-        "PROJECT PATH — IMPORTANT: The weld map panels you create and manage live "
-        "in the user's own project folder. Every panel tool takes a `project_path` "
-        "argument, and you should pass the path to the user's project directory "
-        "(the folder holding their .weldb files for this job). This is NOT the "
-        "weldb code/installation directory, and NOT the bundled examples catalog. "
-        "If you do not yet know the user's project folder, ask for it before "
-        "creating, reading, or listing panels. Omitting project_path falls back to "
-        "the server's current working directory, which is usually not what you want.\n\n"
+        "HOW THIS SERVER WORKS — IMPORTANT: This server is stateless logic only. "
+        "It never reads or writes files in the user's project; YOU own all local "
+        "file I/O. The tools take .weldb *content* as input and return generated "
+        "*content* — .weldb YAML, CSV, or weld-position JSON as text, and PDFs as "
+        "an attached resource. After calling a tool, write the returned content to "
+        "the user's project folder yourself. Text outputs (create_panel's YAML, "
+        "CSV, weld-position JSON) come back as text — write them to the given "
+        "filename directly.\n\n"
+        "STORING PDFs: the render tools return the PDF as base64 text in a `data` "
+        "field, alongside its `filename` (render_example returns one such entry per "
+        "PDF under `files`). To keep a PDF, decode its `data` and write the raw "
+        "bytes to `filename` in the user's project folder — a BINARY write (e.g. "
+        "Python `pathlib.Path(filename).write_bytes(base64.b64decode(data))`). "
+        "Never save the base64 text itself, and never write a PDF as UTF-8 text.\n\n"
+        "To list, read, move (archive/quarantine), or delete panels, use your own "
+        "filesystem tools on the user's project folder — the server does not do "
+        "this for you.\n\n"
         "The bundled specification documents (list_docs / read_doc) and the worked "
         "example catalog (list_examples / list_example_files / read_example_file / "
-        "render_example) are read-only references that ship with the server — they "
-        "are separate from the user's project and take no project_path.\n\n"
+        "render_example) are the server's own read-only references — read them to "
+        "learn the .weldb format and how to lay out a weld map before constructing "
+        "one.\n\n"
         "When the user asks to create a panel, gather the required information "
         "through conversation before calling create_panel. Required: panel_name, "
-        "tube_mtrl, tube_od, tube_wall, units, elevation, tube_start, tube_end. Use "
-        "the panel_naming_convention and existing panels to determine the correct "
-        "panel name. Always confirm parameters with the user before creating. To "
-        "learn how to lay out a weld map for a particular situation (adjacent, "
-        "stacked, or overlapping panels, clips, ports, dutchman repairs, etc.), "
-        "browse the worked examples before constructing the grid."
+        "tube_mtrl, tube_od, tube_wall, units, elevation, tube_start, tube_end. To "
+        "pick the panel name, read the existing .weldb files in the user's project "
+        "folder and pass their names to suggest_panel_name. Always confirm "
+        "parameters with the user before creating. To learn how to lay out a weld "
+        "map for a particular situation (adjacent, stacked, or overlapping panels, "
+        "clips, ports, dutchman repairs, etc.), browse the worked examples first."
     ),
 )
 
@@ -96,71 +120,38 @@ _WALL_RE = re.compile(r"^(" + "|".join(WALL_CODES) + r")(\d+)$")
 VALID_UNITS = ["mm", "ft_in", "in", "dec_in", "dec_ft"]
 
 
-def _find_project_dir(path: str | None) -> Path:
-    """Resolve the user's project directory from an optional path argument.
+def _pdf_save_note(filename: str, data_field: str = "data") -> str:
+    """One-line instruction telling the agent how to persist a base64 PDF field.
 
-    When ``path`` is given it is used as the project directory. If it points at
-    an existing *file* its containing folder is used; if it does not exist yet it
-    is returned as-is (a plausible first-run folder that ``create_panel`` will
-    ``mkdir``) rather than silently redirecting to its parent. When ``path`` is
-    omitted it falls back to :data:`DEFAULT_PROJECT_DIR` (the current working
-    directory). It deliberately does NOT default to the bundled examples catalog
-    — panels live in the agent's project folder, which should be passed
-    explicitly as ``project_path``.
+    ``data_field`` names the field that carries the base64 (``data`` for the
+    single-PDF tools, ``files[].data`` for render_example).
     """
-    if path:
-        p = Path(path)
-        return p.parent if p.is_file() else p
-    return DEFAULT_PROJECT_DIR
+    return (
+        f"HOW TO STORE THIS PDF: the `{data_field}` field is the PDF encoded as "
+        f"base64. Decode it and write the raw bytes to `{filename}` in the user's "
+        "project folder — a BINARY write (e.g. Python: `import base64, pathlib; "
+        f"pathlib.Path('{filename}').write_bytes(base64.b64decode(data))`). Do NOT "
+        "save the base64 text itself, and do not write the PDF as UTF-8 text."
+    )
 
 
-def _resolve_panel_path(base_dir: Path, panel_name: str) -> Path | None:
-    """Resolve ``<base_dir>/<panel_name>.weldb``, guarding against path traversal.
+def _pdf_payload(filename: str, data: bytes) -> dict[str, Any]:
+    """Represent a rendered PDF as a plain base64 text field (never a file).
 
-    ``panel_name`` must be a bare file stem: any value containing a path
-    separator, a parent reference (``..``), or an absolute/drive component is
-    rejected (returns ``None``) so a caller-supplied name can never escape
-    ``base_dir``. The returned path is not required to exist.
+    The server is stateless and writes nothing: a rendered PDF is returned as
+    ``data`` (a base64 ``application/pdf`` string) for the agent to decode and
+    save into the user's project folder as ``filename``.
     """
-    if not panel_name or panel_name != Path(panel_name).name:
-        return None
-    target = (base_dir / f"{panel_name}.weldb").resolve()
-    if target.parent != base_dir.resolve():
-        return None
-    return target
-
-
-def _reject_code_dir(directory: Path) -> str | None:
-    """Return an error message if ``directory`` lies inside the static code tree.
-
-    The entire repo folder (this server, the ``weldb`` library, the bundled
-    ``examples/`` catalog and the specification ``.md`` files) is a read-only
-    resource: the server must never create, move, or overwrite files inside it.
-    Any tool that writes checks its target through this guard so a stray
-    ``project_path`` pointed at the code directory is refused rather than
-    silently mutating the installation.
-    """
-    d = directory.resolve()
-    code = CODE_DIR.resolve()
-    if d == code or code in d.parents:
-        return (
-            f"Refusing to write inside the weldb code directory ({code}). "
-            "It is a static resource. Point project_path at the user's own "
-            "project folder instead."
-        )
-    return None
-
-
-def _quarantine_dir(directory: Path) -> Path:
-    return directory / "quarantine"
-
-
-def _archive_dir(directory: Path) -> Path:
-    return directory / "archive"
+    return {
+        "filename": filename,
+        "mime_type": "application/pdf",
+        "encoding": "base64",
+        "data": base64.b64encode(data).decode("ascii"),
+    }
 
 
 def _list_weldb_files(directory: Path) -> list[Path]:
-    """List .weldb files in directory root (excludes quarantine/ and archive/)."""
+    """List .weldb files in a directory (used only for the bundled examples)."""
     return sorted(directory.glob("*.weldb"))
 
 
@@ -197,7 +188,7 @@ def _resolve_example_path(example: str, filename: str | None = None) -> Path | N
     Returns the resolved path, or None if it escapes examples/ or does not exist.
     """
     base = EXAMPLES_DIR.resolve()
-    target = (EXAMPLES_DIR / example)
+    target = EXAMPLES_DIR / example
     if filename is not None:
         target = target / filename
     resolved = target.resolve()
@@ -207,15 +198,20 @@ def _resolve_example_path(example: str, filename: str | None = None) -> Path | N
     return resolved if resolved.exists() else None
 
 
-def _next_panel_name(directory: Path, wall: str) -> str:
-    """Determine the next sequential panel name for a given wall code."""
+def _next_panel_name(existing_panels: list[str] | None, wall: str) -> str:
+    """Next sequential panel name for ``wall``, given the existing panel names.
+
+    ``existing_panels`` is the list of panel names/stems already in the user's
+    project (e.g. ``["N5", "N6", "W1"]``) — the agent supplies these from the
+    files it sees. Names that do not match ``wall`` are ignored.
+    """
     existing_nums: list[int] = []
-    for f in _list_weldb_files(directory):
-        m = _WALL_RE.match(f.stem)
+    for name in existing_panels or []:
+        stem = Path(str(name)).stem  # tolerate 'N5' or 'N5.weldb'
+        m = _WALL_RE.match(stem)
         if m and m.group(1) == wall:
             existing_nums.append(int(m.group(2)))
-    next_num = max(existing_nums, default=0) + 1
-    return f"{wall}{next_num}"
+    return f"{wall}{max(existing_nums, default=0) + 1}"
 
 
 def _column_letters(i: int) -> str:
@@ -278,7 +274,7 @@ def _build_cold_side_grid(hot_grid: list[list[str]]) -> list[list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Startup — regenerate CSV files
+# CSV generation (in-memory — returns text, never writes files)
 # ---------------------------------------------------------------------------
 
 # Resolved-property keys that are identity columns already carried by the weld
@@ -287,97 +283,67 @@ _PROP_EXCLUDE = {"panel_name"}
 
 
 def _weld_props(props_by_id: dict[str, dict[str, Any]], cell: str) -> dict[str, Any]:
-    """Effective (panel baseline + type/weld override) properties for a weld cell.
-
-    Returns the resolved property dict for ``cell`` (from
-    :func:`resolve_weld_properties`) with identity fields already present as CSV
-    columns (see :data:`_PROP_EXCLUDE`) stripped out. This is what lets each weld
-    row carry the panel's properties and any overrides that apply to it.
-    """
+    """Effective (panel baseline + type/weld override) properties for a weld cell."""
     props = props_by_id.get(cell, {})
     return {k: v for k, v in props.items() if k not in _PROP_EXCLUDE}
 
 
-def _write_weld_csv(path: Path, rows: list[dict[str, Any]], id_cols: list[str]) -> None:
-    """Write weld ``rows`` to ``path`` with a header of identity + property columns.
+def _weld_csv_text(rows: list[dict[str, Any]], id_cols: list[str]) -> str:
+    """Render weld ``rows`` to CSV text with identity + property columns.
 
-    ``id_cols`` are the fixed leading columns (e.g. panel, weld_id, source); every
-    other key seen across ``rows`` — the resolved panel properties and weld
-    overrides — is appended as a property column in first-seen order. Rows missing
-    a given property leave that cell blank.
+    ``id_cols`` are the fixed leading columns; every other key seen across
+    ``rows`` (resolved panel properties and weld overrides) is appended as a
+    property column in first-seen order. Rows missing a property leave it blank.
     """
     prop_cols: list[str] = []
     for row in rows:
         for key in row:
             if key not in id_cols and key not in prop_cols:
                 prop_cols.append(key)
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=id_cols + prop_cols, restval="")
-        writer.writeheader()
-        writer.writerows(rows)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=id_cols + prop_cols, restval="")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buf.getvalue()
 
 
-def _regenerate_all_csv_files(directory: Path) -> str:
-    """Load all .weldb files, extract all weld types, write three CSV files.
+def _build_weld_csvs(panels: list[str]) -> dict[str, Any]:
+    """Build the three weld CSVs (as text) from a list of .weldb *contents*.
 
-    Generates:
-      - point_welds.csv  — one row per point weld (deduplicated across views)
-      - linear_welds.csv — one row per linear weld ID
-      - area_welds.csv   — one row per area weld ID
-
-    Each row also carries the weld's effective properties — the panel's top-level
-    properties (material, OD, wall, units, elevation, any custom fields) merged
-    with the type-level and weld-specific overrides that apply to it (e.g. a
-    linear weld's length, an area weld's height). Property columns are the union
-    of keys seen across the rows; a weld missing a property leaves it blank.
-
-    Weld extraction goes through the library extractors
-    (:func:`get_point_welds` / :func:`get_linear_welds` / :func:`get_area_welds`),
-    so the CSVs get the library's full validation for free — a file the library
-    rejects (conflicting IDs, duplicate point welds, embedded special chars) is
-    reported and skipped, never partially written. Files that fail to load or
-    validate are **reported and skipped** — this routine never moves user files;
-    use the ``quarantine_panel`` tool to quarantine a file deliberately.
-
-    Returns a status message.
+    Each item of ``panels`` is the full text of one ``.weldb`` file. Extraction
+    goes through the library extractors, so a file the library rejects
+    (conflicting IDs, duplicate point welds, cross-file duplicate) is reported and
+    skipped, never partially included. Returns a dict with the three CSV texts and
+    a skip report; the agent writes the CSVs into the user's project folder.
     """
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-
-    files = _list_weldb_files(directory)
-    if not files:
-        return f"No .weldb files in {directory} — skipped CSV generation."
-
     point_rows: list[dict[str, Any]] = []
     linear_rows: list[dict[str, Any]] = []
     area_rows: list[dict[str, Any]] = []
 
-    seen_points: dict[str, str] = {}  # prefixed_id -> source filename
+    seen_points: dict[str, str] = {}  # prefixed_id -> source panel
     skipped: list[str] = []
 
-    for filepath in files:
+    for idx, content in enumerate(panels):
+        label = f"panel #{idx + 1}"
         try:
-            # Extract via the library so the CSV path enforces the same
-            # validation as render/extract (no drift) and never sees ragged or
-            # non-string grids (load normalizes them).
-            doc = load(filepath)
+            doc = loads(content)
             panel_name = doc["panel_name"]
+            label = f"{panel_name}.weldb"
+            source = f"{panel_name}.weldb"
             props_by_id = resolve_weld_properties(doc)
 
             point_welds = get_point_welds(doc)
             linear_welds = get_linear_welds(doc)
             area_welds = get_area_welds(doc)
 
-            # Detect cross-file point-weld duplicates *before* committing any of
+            # Detect cross-file point-weld duplicates before committing any of
             # this file's rows, so a rejected file leaves the accumulators clean.
-            file_point_ids: dict[str, str] = {}  # local weld_id -> prefixed_id
+            file_point_ids: dict[str, str] = {}
             for pw in point_welds:
                 prefixed_id = prefix_weld_id(panel_name, pw.weld_id)
                 if prefixed_id in seen_points:
                     raise ValueError(
-                        f"Duplicate weld '{prefixed_id}' in "
-                        f"{filepath.name} and {seen_points[prefixed_id]}"
+                        f"Duplicate weld '{prefixed_id}' also in {seen_points[prefixed_id]}"
                     )
                 file_point_ids[pw.weld_id] = prefixed_id
 
@@ -385,7 +351,7 @@ def _regenerate_all_csv_files(directory: Path) -> str:
                 {
                     "panel": panel_name,
                     "weld_id": file_point_ids[pw.weld_id],
-                    "source": filepath.name,
+                    "source": source,
                     **_weld_props(props_by_id, pw.weld_id),
                 }
                 for pw in point_welds
@@ -394,7 +360,7 @@ def _regenerate_all_csv_files(directory: Path) -> str:
                 {
                     "panel": panel_name,
                     "weld_id": prefix_weld_id(panel_name, lw.weld_id),
-                    "source": filepath.name,
+                    "source": source,
                     **_weld_props(props_by_id, lw.weld_id),
                 }
                 for lw in linear_welds
@@ -403,78 +369,63 @@ def _regenerate_all_csv_files(directory: Path) -> str:
                 {
                     "panel": panel_name,
                     "weld_id": prefix_weld_id(panel_name, aw.weld_id),
-                    "source": filepath.name,
+                    "source": source,
                     **_weld_props(props_by_id, aw.weld_id),
                 }
                 for aw in area_welds
             ]
 
-            # Commit only after the whole file extracted cleanly.
             for prefixed_id in file_point_ids.values():
-                seen_points[prefixed_id] = filepath.name
+                seen_points[prefixed_id] = source
             point_rows.extend(new_point_rows)
             linear_rows.extend(new_linear_rows)
             area_rows.extend(new_area_rows)
+        except Exception as exc:  # noqa: BLE001 — report and skip, never abort
+            skipped.append(f"{label}: {exc}")
 
-        except Exception as exc:  # noqa: BLE001 — report and skip, never mutate
-            skipped.append(f"{filepath.name}: {exc}")
-
-    good_files = len(files) - len(skipped)
-
-    # Write the three CSVs. Identity columns lead; the resolved panel properties
-    # and weld overrides follow as property columns (grid row/col are not exported).
-    point_csv = directory / "point_welds.csv"
-    _write_weld_csv(point_csv, point_rows, ["panel", "weld_id", "source"])
-
-    linear_csv = directory / "linear_welds.csv"
-    _write_weld_csv(linear_csv, linear_rows, ["panel", "weld_id", "source"])
-
-    area_csv = directory / "area_welds.csv"
-    _write_weld_csv(area_csv, area_rows, ["panel", "weld_id", "source"])
-
-    lines = [
-        f"From {good_files} file(s) in {directory}:",
-        f"  {point_csv.name}: {len(point_rows)} point welds",
-        f"  {linear_csv.name}: {len(linear_rows)} linear welds",
-        f"  {area_csv.name}: {len(area_rows)} area welds",
+    id_cols = ["panel", "weld_id", "source"]
+    files = [
+        {"filename": "point_welds.csv", "content": _weld_csv_text(point_rows, id_cols)},
+        {"filename": "linear_welds.csv", "content": _weld_csv_text(linear_rows, id_cols)},
+        {"filename": "area_welds.csv", "content": _weld_csv_text(area_rows, id_cols)},
     ]
-    if skipped:
-        lines.append(f"Skipped {len(skipped)} file(s) (not modified):")
-        for s in skipped:
-            lines.append(f"  {s}")
-        lines.append(
-            "Fix the reported issues (or quarantine the file with quarantine_panel) "
-            "and re-run."
-        )
-    return "\n".join(lines)
+    return {
+        "files": files,
+        "counts": {
+            "point_welds": len(point_rows),
+            "linear_welds": len(linear_rows),
+            "area_welds": len(area_rows),
+        },
+        "skipped": skipped,
+        "note": (
+            "Write each file's `content` to `filename` in the user's project "
+            "folder. Skipped panels were not included — fix them and re-run."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
-# Tools
+# Tools — panel generation & inspection (content in, content out)
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
-def list_panels(project_path: str | None = None) -> str:
-    """List all .weldb panel files in the user's project directory.
+def summarize_panels(panels: list[str]) -> str:
+    """Validate and summarize a set of .weldb panels supplied as content.
 
-    Pass ``project_path`` pointing at the user's project folder (the directory
-    holding their .weldb panels). Returns panel names, tube material, tube range,
-    and revision info so the AI can understand the current project state. A file
-    that cannot be loaded is listed with its error rather than aborting the whole
-    listing.
+    Because the server holds no project state, pass the *contents* of the .weldb
+    files you have read from the user's project folder (one string per file).
+    Each is loaded with the library's validation and summarized (panel name,
+    material, OD, wall, units, latest rev, point-weld count). A file that fails to
+    load is listed with its error instead of aborting the whole summary.
     """
-    directory = _find_project_dir(project_path)
-    files = _list_weldb_files(directory)
-    if not files:
-        return f"No .weldb files found in {directory}"
+    if not panels:
+        return "No panel contents provided. Read the user's .weldb files and pass them in."
 
-    lines = [f"Project directory: {directory}", f"Panels ({len(files)}):", ""]
-    for f in files:
-        # Validate each file with the library loader; report per-file failures
-        # instead of letting one malformed file break the entire listing.
+    lines = [f"Panels ({len(panels)}):", ""]
+    for idx, content in enumerate(panels):
         try:
-            doc = load(f)
+            doc = loads(content)
             maps = doc.get("maps", [])
             latest = maps[-1] if maps else {}
             views = latest.get("views", [])
@@ -486,7 +437,7 @@ def list_panels(project_path: str | None = None) -> str:
                 if cell.startswith("*")
             )
             lines.append(
-                f"  {doc.get('panel_name', f.stem):8s}  "
+                f"  {doc.get('panel_name', f'#{idx + 1}'):8s}  "
                 f"mtrl={doc.get('tube_mtrl', '?')}  "
                 f"od={doc.get('tube_od', '?')}  "
                 f"wall={doc.get('tube_wall', '?')}  "
@@ -494,26 +445,30 @@ def list_panels(project_path: str | None = None) -> str:
                 f"rev={latest.get('rev', '?')}  "
                 f"welds={point_count}"
             )
-        except Exception as exc:  # noqa: BLE001 — report, don't abort the listing
-            lines.append(f"  {f.stem:8s}  <error: {exc}>")
+        except Exception as exc:  # noqa: BLE001 — report, don't abort the summary
+            lines.append(f"  panel #{idx + 1}  <error: {exc}>")
     return "\n".join(lines)
 
 
 @mcp.tool()
-def read_panel(panel_name: str, project_path: str | None = None) -> str:
-    """Read and return the full YAML content of a specific panel file.
+def suggest_panel_name(wall_code: str, existing_panels: list[str] | None = None) -> str:
+    """Suggest the next panel name for a given wall code.
 
-    Pass ``project_path`` pointing at the user's project folder. Use this to
-    inspect an existing panel's structure, grid layout, weld overrides, and
-    revision history.
+    Use this after determining which wall the user is referring to (e.g. 'west
+    wall' -> wall_code='W'). Pass ``existing_panels`` = the names of the .weldb
+    panels already in the user's project folder (stems like ``N5`` or filenames
+    like ``N5.weldb``, either works) so the number continues the sequence; omit it
+    to start at 1.
+
+    Valid wall codes are the entries in WALL_CODES (single-letter walls N, S, E,
+    W, T, F, H, D; features LS, US, TB, BN; corners NE, NW, SE, SW; and the
+    directional disambiguations WLS, ELS, NTB, STB, NBN, SBN, ND, SD).
     """
-    directory = _find_project_dir(project_path)
-    filepath = _resolve_panel_path(directory, panel_name)
-    if filepath is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not filepath.exists():
-        return f"Panel file not found: {filepath}"
-    return filepath.read_text(encoding="utf-8")
+    wall_code = wall_code.upper()
+    if wall_code not in WALL_CODES:
+        return f"Unknown wall code '{wall_code}'. Valid codes: {', '.join(WALL_CODES)}"
+    name = _next_panel_name(existing_panels, wall_code)
+    return f"Next available panel name for {wall_code} wall: {name}"
 
 
 @mcp.tool()
@@ -529,19 +484,23 @@ def create_panel(
     elevation_at: str = "",
     updated_by: str = "mcp",
     comments: str = "Initial weld map layout",
-    project_path: str | None = None,
     custom_fields: dict[str, Any] | None = None,
-) -> str:
-    """Create a new .weldb panel file with hot_side and cold_side views.
+) -> dict[str, Any]:
+    """Generate a new .weldb panel with hot_side and cold_side views.
+
+    Returns the panel as text for YOU to save — the server writes nothing. The
+    result carries ``filename`` (``<panel_name>.weldb``) and ``content`` (the YAML
+    to write into the user's project folder).
 
     Before calling this tool, you MUST:
-    1. Determine the correct panel_name using the panel naming convention
-       (wall code + next sequential number). Use list_panels to see existing panels.
+    1. Determine the correct panel_name using the panel naming convention (wall
+       code + next sequential number). Read the user's existing .weldb files and
+       pass their names to suggest_panel_name.
     2. Confirm tube_mtrl, tube_od, tube_wall, units, and elevation with the user.
     3. Know the tube range (tube_start and tube_end inclusive).
 
-    The tool generates a standard layout with membrane welds between tubes,
-    point welds at tube top/bottom, and an empty cold-side view.
+    The layout has membrane welds between tubes, point welds at tube top/bottom,
+    and an empty cold-side view.
 
     Args:
         panel_name: Panel identifier (e.g., W3, N5, LS2). Must match wall code + number.
@@ -556,41 +515,31 @@ def create_panel(
         elevation_at: Optional note for what the elevation refers to (e.g. 'top').
         updated_by: Author of the revision.
         comments: Revision comment.
-        project_path: The user's project folder to write the panel into.
         custom_fields: Optional dict of extra top-level fields (e.g., client, job_number).
 
-    Returns a confirmation message with the file path and weld count.
+    Returns a dict with ``filename``, ``content``, and a ``summary`` message.
     """
-    directory = _find_project_dir(project_path)
-
     # Validate panel name format
     m = _WALL_RE.match(panel_name)
     if not m:
-        return (
-            f"Invalid panel name '{panel_name}'. "
-            f"Expected format: <wall_code><number> (e.g., N5, W3, LS2). "
-            f"Valid wall codes: {', '.join(WALL_CODES)}"
-        )
+        return {
+            "error": (
+                f"Invalid panel name '{panel_name}'. Expected format: "
+                f"<wall_code><number> (e.g., N5, W3, LS2). "
+                f"Valid wall codes: {', '.join(WALL_CODES)}"
+            )
+        }
 
     if units not in VALID_UNITS:
-        return f"Invalid units '{units}'. Must be one of: {', '.join(VALID_UNITS)}."
+        return {"error": f"Invalid units '{units}'. Must be one of: {', '.join(VALID_UNITS)}."}
 
     if not elevation.strip():
-        return "elevation is required and must not be empty (e.g. '1850 in' or 'Scaffold L3')."
-
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-
-    # Check for name collision
-    filepath = _resolve_panel_path(directory, panel_name)
-    if filepath is None:
-        return f"Invalid panel name '{panel_name}'."
-    if filepath.exists():
-        return f"Panel '{panel_name}' already exists at {filepath}. Choose a different name."
+        return {
+            "error": "elevation is required and must not be empty (e.g. '1850 in' or 'Scaffold L3')."
+        }
 
     if tube_start > tube_end:
-        return f"tube_start ({tube_start}) must be <= tube_end ({tube_end})."
+        return {"error": f"tube_start ({tube_start}) must be <= tube_end ({tube_end})."}
 
     # Build grids
     hot_grid = _build_grid(tube_start, tube_end)
@@ -612,11 +561,13 @@ def create_panel(
             try:
                 custom_field_setter(doc, k, v)
             except ValueError as exc:
-                return (
-                    f"Invalid custom field '{k}': {exc} "
-                    "Pass reserved fields (panel_name, units, elevation, etc.) as "
-                    "their own arguments, not in custom_fields."
-                )
+                return {
+                    "error": (
+                        f"Invalid custom field '{k}': {exc} Pass reserved fields "
+                        "(panel_name, units, elevation, etc.) as their own arguments, "
+                        "not in custom_fields."
+                    )
+                }
 
     doc["maps"] = [
         {
@@ -631,232 +582,203 @@ def create_panel(
         }
     ]
 
-    directory.mkdir(parents=True, exist_ok=True)
-    save(doc, filepath)
-
-    # Validate the written file by loading it back (same rules as render/extract),
-    # so create_panel never leaves an unloadable file behind.
+    # Serialize to text, then round-trip through the loader so this tool never
+    # returns content the library would reject.
+    content = dumps(doc)
     try:
-        load(filepath)
-    except Exception as exc:  # noqa: BLE001 — surface the failure and clean up
-        filepath.unlink(missing_ok=True)
-        return f"create_panel produced an invalid file; it was removed and no panel was created: {exc}"
+        loads(content)
+    except Exception as exc:  # noqa: BLE001 — surface the failure
+        return {"error": f"create_panel produced invalid content: {exc}"}
 
     num_tubes = tube_end - tube_start + 1
-    point_welds = num_tubes * 2  # top + bottom per tube
-    return (
-        f"Created {filepath}\n"
-        f"  Panel: {panel_name}\n"
-        f"  Tubes: {tube_start}-{tube_end} ({num_tubes} tubes)\n"
-        f"  Point welds: {point_welds}\n"
-        f"  Membrane welds: {num_tubes + 1}\n"
-        f"  Views: hot_side, cold_side"
-    )
+    point_welds = num_tubes * 2
+    return {
+        "filename": f"{panel_name}.weldb",
+        "content": content,
+        "summary": (
+            f"Generated {panel_name}.weldb — tubes {tube_start}-{tube_end} "
+            f"({num_tubes} tubes), {point_welds} point welds, {num_tubes + 1} "
+            f"membrane welds, views hot_side + cold_side. Save `content` as "
+            f"`{panel_name}.weldb` in the user's project folder."
+        ),
+    }
+
+
+@mcp.tool()
+def build_weld_csvs(panels: list[str]) -> dict[str, Any]:
+    """Build point/linear/area weld CSVs from a set of .weldb panel contents.
+
+    Pass the *contents* of the .weldb files in the user's project folder (one
+    string per file). Returns the three CSVs (``point_welds.csv``,
+    ``linear_welds.csv``, ``area_welds.csv``) as text under ``files`` — write each
+    into the user's project folder. Each weld row carries its effective properties
+    (the panel's top-level properties merged with type-level and weld-specific
+    overrides). Panels that fail to load or validate are reported under
+    ``skipped`` and excluded — fix them and re-run.
+    """
+    if not panels:
+        return {"error": "No panel contents provided. Read the user's .weldb files and pass them in."}
+    return _build_weld_csvs(panels)
 
 
 @mcp.tool()
 def extract_weld_positions(
-    panel_name: str,
-    project_path: str | None = None,
+    content: str,
     canvas_w: float | None = None,
     canvas_h: float | None = None,
     include_text: bool = False,
-) -> str:
+) -> dict[str, Any]:
     """Locate every weld on the panel's rendered PDF, as a JSON coordinate map.
 
     Use this to find where each weld sits **on the PDF that render_pdf produces**
-    — e.g. to drop a pin, highlight, or clickable hotspot onto that drawing. The
-    coordinates describe the rendered PDF page, NOT the .weldb source; the typical
-    workflow is render_pdf(panel) to produce the sheet, then this tool to get the
-    weld boxes that line up with it.
+    — e.g. to drop a pin, highlight, or clickable hotspot onto that drawing. Pass
+    the .weldb file's ``content`` (its text); the tool derives the PDF geometry
+    from the same layout math render_pdf uses, so no PDF file has to exist. It
+    returns the coordinate map as JSON text for you to save (suggested filename
+    ``<panel_name>_weld_positions.json``) — the server writes nothing.
 
-    Note the ``panel_name`` argument is the panel's file stem (the same one you
-    pass to render_pdf), e.g. ``N5`` — do NOT pass a ``.pdf`` (or ``.weldb``) file
-    path or name. The tool reads the ``.weldb`` panel and derives the PDF geometry
-    internally from the identical layout math render_pdf uses, so no PDF file has
-    to exist first.
+    For each weld region the JSON holds a bounding box (upper-left ``x0,y0`` and
+    lower-right ``x1,y1``) in the rendered PDF's coordinate space: millimetres,
+    origin at the **top-left**, y increasing downward. Page width/height (mm) are
+    included so a consumer can map the boxes onto any canvas.
 
-    Writes ``<panel_name>_weld_positions.json`` into the user's project folder
-    (next to the panel) and returns its content. For each weld region the JSON
-    holds a bounding box (upper-left ``x0,y0`` and lower-right ``x1,y1`` corners)
-    in the rendered PDF's coordinate space: millimetres, origin at the
-    **top-left** of the page, y increasing downward. The page width and height
-    (also in mm) are included so a consumer can map the boxes onto any canvas.
-    Coordinates match exactly where each weld is drawn by render_pdf — welds are
-    reported per drawn region (an interrupted membrane run yields one entry per
-    shape), and an empty back/cold view uses its mirrored layout, as drawn.
-
-    QC Database pixel conversion: pass ``canvas_w`` and ``canvas_h`` (the target
-    canvas size in pixels). Each weld then also gets integer ``px0, py0, px1,
-    py1`` pixel corners, scaled proportionally from mm — ``px = x_mm /
-    page_width * canvas_w`` and ``py = y_mm / page_height * canvas_h`` (no
-    vertical flip, since both spaces put the origin at the top-left). Omit them
-    to keep the file device-independent.
+    QC Database pixel conversion: pass ``canvas_w`` and ``canvas_h`` (target canvas
+    size in pixels). Each weld then also gets integer ``px0, py0, px1, py1`` pixel
+    corners, scaled proportionally from mm (no vertical flip). Omit them to keep
+    the output device-independent.
 
     Args:
-        panel_name: Panel identifier — the file stem only (e.g. N5), not a
-            filename or path and not a .pdf.
-        project_path: The user's project folder holding the panel file; the JSON
-            is written here too.
+        content: The .weldb file's text.
         canvas_w: Optional target canvas width in pixels (enables px output).
         canvas_h: Optional target canvas height in pixels (enables px output).
         include_text: If true, also report plain-text regions (tube numbers,
             annotations), not just welds. Empty regions are never reported.
 
-    Returns the path written and the JSON content.
+    Returns a dict with ``filename`` and ``content`` (the JSON text).
     """
-    directory = _find_project_dir(project_path)
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-    filepath = _resolve_panel_path(directory, panel_name)
-    if filepath is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not filepath.exists():
-        return f"Panel file not found: {filepath}"
-
     if (canvas_w is None) != (canvas_h is None):
-        return "Provide both canvas_w and canvas_h for pixel output, or neither."
+        return {"error": "Provide both canvas_w and canvas_h for pixel output, or neither."}
     if canvas_w is not None and (canvas_w <= 0 or canvas_h <= 0):
-        return "canvas_w and canvas_h must be positive."
+        return {"error": "canvas_w and canvas_h must be positive."}
 
     try:
-        from weldb import write_weld_positions
-    except ImportError as exc:
-        return f"Weld position extraction unavailable: {exc}"
+        doc = loads(content)
+    except Exception as exc:  # noqa: BLE001 — surface parse/validation failure
+        return {"error": f"Could not parse .weldb content: {exc}"}
 
-    out_path = directory / f"{panel_name}_weld_positions.json"
     try:
-        written = write_weld_positions(
-            filepath,
-            output_path=out_path,
-            include_text=include_text,
-            canvas_w=canvas_w,
-            canvas_h=canvas_h,
+        data = weld_positions_data(
+            doc, include_text=include_text, canvas_w=canvas_w, canvas_h=canvas_h
         )
+    except ImportError as exc:
+        return {"error": f"Weld position extraction unavailable: {exc}"}
     except Exception as exc:  # noqa: BLE001 — surface the failure to the caller
-        return f"Failed to extract weld positions from {filepath.name}: {exc}"
+        return {"error": f"Failed to extract weld positions: {exc}"}
 
-    return f"Wrote {written}\n\n{written.read_text(encoding='utf-8')}"
+    panel_name = data.get("panel_name") or doc.get("panel_name", "panel")
+    return {
+        "filename": f"{panel_name}_weld_positions.json",
+        "content": json.dumps(data, indent=2),
+        "note": "Save `content` as `filename` in the user's project folder if you need it persisted.",
+    }
 
 
-@mcp.tool()
-def render_revision_history(panel_name: str, project_path: str | None = None) -> str:
+# ---------------------------------------------------------------------------
+# Tools — PDF rendering (returns the PDF as base64 text; never written server-side)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(structured_output=False)
+def render_pdf(content: str, color: bool = False) -> dict[str, Any]:
+    """Render a panel to a single-sheet vector engineering-drawing PDF.
+
+    Pass the .weldb file's ``content`` (its text). The PDF is returned as base64
+    text in the ``data`` field (with ``filename`` = ``<panel_name>.pdf``) for YOU
+    to decode and save into the user's project folder — the server writes nothing.
+    Decode ``data`` and write the raw bytes to ``filename`` as a BINARY write; see
+    the returned ``note``. The sheet has a double-width border; the top 80% holds
+    the views (each grid scaled to fill its box, an empty back/cold view mirrored
+    from its sibling); a double-width line separates the bottom 20% title block
+    (properties, legend and weld tallies, most recent revisions that fit).
+
+    Args:
+        content: The .weldb file's text.
+        color: When true, grid cells are tinted with light, text-safe colors and
+            the legend gains matching swatches. Default renders black-on-white.
+
+    Returns a dict with ``filename``, ``mime_type``, ``encoding`` ("base64"),
+    ``data`` (the base64 PDF), plus a ``summary`` and a ``note`` on how to save it.
+    Requires the optional fpdf2 dependency (pip install weldb[pdf]).
+    """
+    try:
+        doc = loads(content)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Could not parse .weldb content: {exc}"}
+
+    try:
+        data = render_pdf_bytes(doc, color=color)
+    except ImportError as exc:
+        return {"error": f"PDF rendering unavailable: {exc}"}
+    except Exception as exc:  # noqa: BLE001 — surface the failure to the caller
+        return {"error": f"Failed to render PDF: {exc}"}
+
+    panel_name = doc.get("panel_name", "panel")
+    filename = f"{panel_name}.pdf"
+    kind = "color" if color else "black-and-white"
+    payload = _pdf_payload(filename, data)
+    payload["summary"] = f"Rendered {filename} ({kind})."
+    payload["note"] = _pdf_save_note(filename)
+    return payload
+
+
+@mcp.tool(structured_output=False)
+def render_revision_history(content: str) -> dict[str, Any]:
     """Render a panel's full revision history to a standalone PDF.
 
-    Writes ``<panel_name>_revisions.pdf`` into the user's project folder, listing
-    every revision in a bordered table with the columns Rev, Date, Updated By,
-    and Comments, ordered oldest to newest and paginated across as many sheets as
-    needed. Unlike the abbreviated revision block on the main drawing (which is
-    capped to what fits), this is the complete, unabridged history.
+    Pass the .weldb file's ``content`` (its text). The PDF is returned as base64
+    text in the ``data`` field (with ``filename`` = ``<panel_name>_revisions.pdf``)
+    for YOU to decode and save — the server writes nothing; see the returned
+    ``note``. Lists every revision in a bordered table (Rev, Date, Updated By,
+    Comments), oldest to newest, paginated as needed. Unlike the abbreviated
+    revision block on the main drawing (capped to what fits), this is the
+    complete, unabridged history.
 
-    Args:
-        panel_name: Panel identifier (file stem, e.g. N5).
-        project_path: The user's project folder holding the panel file; the PDF
-            is written here too.
-
+    Returns a dict with ``filename``, ``mime_type``, ``encoding`` ("base64"),
+    ``data`` (the base64 PDF), plus a ``summary`` and a ``note`` on how to save it.
     Requires the optional fpdf2 dependency (pip install weldb[pdf]).
     """
-    directory = _find_project_dir(project_path)
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-    filepath = _resolve_panel_path(directory, panel_name)
-    if filepath is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not filepath.exists():
-        return f"Panel file not found: {filepath}"
+    try:
+        doc = loads(content)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Could not parse .weldb content: {exc}"}
 
     try:
-        from weldb import render_revision_history_pdf
+        data = render_revision_history_pdf_bytes(doc)
+        n_revs = len(doc.get("maps", []))
     except ImportError as exc:
-        return f"PDF rendering unavailable: {exc}"
-
-    out_path = directory / f"{panel_name}_revisions.pdf"
-    try:
-        written = render_revision_history_pdf(filepath, output_path=out_path)
-        n_revs = len(load(filepath).get("maps", []))
+        return {"error": f"PDF rendering unavailable: {exc}"}
     except Exception as exc:  # noqa: BLE001 — surface the failure to the caller
-        return f"Failed to render revision history for {filepath.name}: {exc}"
+        return {"error": f"Failed to render revision history: {exc}"}
 
-    return f"Wrote {written} ({n_revs} revision(s))"
-
-
-@mcp.tool()
-def render_pdf(
-    panel_name: str, project_path: str | None = None, color: bool = False
-) -> str:
-    """Render a project panel to a single-sheet vector engineering-drawing PDF.
-
-    Writes ``<panel_name>.pdf`` into the user's project folder (next to the panel
-    file) from the panel's latest revision. The sheet has a double-width border;
-    the top 80% holds the views (drawn left to right, each grid scaled to fill its
-    box, an empty back/cold view mirrored from its non-empty sibling); a
-    double-width line separates the bottom 20% title block (properties, legend and
-    weld tallies, and the most recent revisions that fit). This is the panel's own
-    drawing — for the read-only bundled catalog use render_example instead.
-
-    Args:
-        panel_name: Panel identifier (file stem, e.g. N5).
-        project_path: The user's project folder holding the panel file; the PDF
-            is written here too.
-        color: When true, grid cells are tinted with light, text-safe colors
-            (grey for blank cells, pastel green/blue/orange for point/linear/area
-            welds; plain-label cells stay white) and the legend gains matching
-            swatches. The default renders black-on-white.
-
-    Requires the optional fpdf2 dependency (pip install weldb[pdf]).
-    """
-    directory = _find_project_dir(project_path)
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-    filepath = _resolve_panel_path(directory, panel_name)
-    if filepath is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not filepath.exists():
-        return f"Panel file not found: {filepath}"
-
-    try:
-        from weldb import render_pdf as _render_pdf
-    except ImportError as exc:
-        return f"PDF rendering unavailable: {exc}"
-
-    out_path = directory / f"{panel_name}.pdf"
-    try:
-        written = _render_pdf(filepath, color=color, output_path=out_path)
-    except Exception as exc:  # noqa: BLE001 — surface the failure to the caller
-        return f"Failed to render {filepath.name}: {exc}"
-
-    return f"Wrote {written} ({'color' if color else 'black-and-white'})"
+    panel_name = doc.get("panel_name", "panel")
+    filename = f"{panel_name}_revisions.pdf"
+    payload = _pdf_payload(filename, data)
+    payload["summary"] = f"Rendered {filename} ({n_revs} revision(s))."
+    payload["note"] = _pdf_save_note(filename)
+    return payload
 
 
-@mcp.tool()
-def suggest_panel_name(wall_code: str, project_path: str | None = None) -> str:
-    """Suggest the next panel name for a given wall code.
-
-    Use this after determining which wall the user is referring to.
-    For example, if the user says 'west wall', pass wall_code='W'.
-
-    Valid wall codes are the entries in WALL_CODES (single-letter walls N, S, E,
-    W, T, F, H, D; features LS, US, TB, BN; corners NE, NW, SE, SW; and the
-    directional disambiguations WLS, ELS, NTB, STB, NBN, SBN, ND, SD). The error
-    message lists the full set if an unknown code is passed.
-    """
-    wall_code = wall_code.upper()
-    if wall_code not in WALL_CODES:
-        return f"Unknown wall code '{wall_code}'. Valid codes: {', '.join(WALL_CODES)}"
-    directory = _find_project_dir(project_path)
-    name = _next_panel_name(directory, wall_code)
-    return f"Next available panel name for {wall_code} wall: {name}"
+# ---------------------------------------------------------------------------
+# Tools — bundled reference documents (read-only, server-side)
+# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
 def list_docs() -> str:
-    """List all specification and documentation files (.md) in the project.
+    """List all specification and documentation files (.md) bundled with the server.
 
-    Returns file names and first-line descriptions. Use read_doc to
-    read the full content of any document.
+    Returns file names and first-line descriptions. Use read_doc to read the full
+    content of any document. These are the server's own read-only references.
     """
     md_files = sorted(SPEC_DIR.glob("*.md"))
     if not md_files:
@@ -877,11 +799,11 @@ def list_docs() -> str:
 
 @mcp.tool()
 def read_doc(filename: str) -> str:
-    """Read the full content of a specification or documentation file.
+    """Read the full content of a bundled specification/documentation file.
 
     Pass the filename (e.g., 'drawing_spec.md', 'weldb_design_philosophy.md',
-    'panel_naming_convention.md'). Only .md files in the project root
-    are accessible.
+    'panel_naming_convention.md'). Only .md files bundled with the server are
+    accessible.
     """
     if not filename.endswith(".md"):
         return "Only .md files can be read with this tool."
@@ -900,13 +822,13 @@ def read_doc(filename: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Example catalog — reference .weldb files organized by panel arrangement
+# Tools — bundled example catalog (read-only, server-side reference)
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
 def list_examples() -> str:
-    """List the example arrangements in the examples/ catalog.
+    """List the example arrangements in the bundled examples/ catalog.
 
     Each subfolder demonstrates a common panel arrangement (e.g., single,
     adjacent, stacked, overlapping) with one or more reference .weldb files.
@@ -974,211 +896,62 @@ def read_example_file(example: str, filename: str) -> str:
     return filepath.read_text(encoding="utf-8")
 
 
-@mcp.tool()
-def render_example(
-    example: str, filename: str | None = None, project_path: str | None = None
-) -> str:
-    """Render example .weldb file(s) to PDF in the user's project folder.
+@mcp.tool(structured_output=False)
+def render_example(example: str, filename: str | None = None, color: bool = False) -> dict[str, Any]:
+    """Render bundled example .weldb file(s) to PDF, returned as base64 text.
 
-    The examples catalog is a read-only reference, so the generated PDFs are
-    written into ``project_path`` (the user's project folder) — never back into
-    the examples directory. Pass an example folder name and optionally a single
-    .weldb file name; if filename is omitted, every .weldb file in the folder is
-    rendered. Each PDF keeps the source stem with a .pdf extension.
+    The examples catalog is a read-only reference, so the PDFs are returned as
+    base64 text (never written to disk). Pass an example folder name and
+    optionally a single .weldb file name; if filename is omitted, every .weldb
+    file in the folder is rendered. Each rendered PDF appears in ``files`` as
+    ``{filename, mime_type, encoding, data}`` where ``data`` is the base64 PDF —
+    decode it and write the raw bytes to ``filename`` (a BINARY write) if you want
+    to keep it in the user's project folder; see the returned ``note``.
+
     Requires the optional fpdf2 dependency (pip install weldb[pdf]).
     """
     folder = _resolve_example_path(example)
     if folder is None or not folder.is_dir():
         names = ", ".join(d.name for d in _list_example_dirs()) or "(none)"
-        return f"Example '{example}' not found. Available: {names}"
+        return {"error": f"Example '{example}' not found. Available: {names}"}
 
     if filename is not None:
         target = _resolve_example_path(example, filename)
         if target is None or not target.is_file():
-            return f"File '{filename}' not found in example '{example}'."
+            return {"error": f"File '{filename}' not found in example '{example}'."}
         targets = [target]
     else:
         targets = _list_weldb_files(folder)
         if not targets:
-            return f"Example '{example}' has no .weldb files to render."
+            return {"error": f"Example '{example}' has no .weldb files to render."}
 
-    out_dir = _find_project_dir(project_path)
-    guard = _reject_code_dir(out_dir)
-    if guard:
-        return guard
-
-    try:
-        from weldb import render_pdf
-    except ImportError as exc:
-        return f"PDF rendering unavailable: {exc}"
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    rendered: list[str] = []
+    files: list[dict[str, Any]] = []
     errors: list[str] = []
     for src in targets:
         try:
-            pdf_path = render_pdf(src, output_path=out_dir / f"{src.stem}.pdf")
-            rendered.append(pdf_path.name)
+            doc = loads(src.read_text(encoding="utf-8"))
+            data = render_pdf_bytes(doc, color=color)
+        except ImportError as exc:
+            return {"error": f"PDF rendering unavailable: {exc}"}
         except Exception as exc:  # noqa: BLE001 — report per-file failures
             errors.append(f"{src.name}: {exc}")
+            continue
+        files.append(_pdf_payload(f"{src.stem}.pdf", data))
 
-    lines = [f"Rendered {len(rendered)} PDF(s) from examples/{example}/ into {out_dir}:"]
-    lines += [f"  {p}" for p in rendered]
+    names = ", ".join(f["filename"] for f in files) or "(none)"
+    result: dict[str, Any] = {
+        "files": files,
+        "summary": f"Rendered {len(files)} PDF(s) from examples/{example}/: {names}.",
+        "note": (
+            "Each entry in `files` has a base64 `data` field. To keep a PDF, decode "
+            "its `data` and write the raw bytes to its `filename` in the user's "
+            "project folder — a BINARY write (e.g. Python `pathlib.Path(filename)."
+            "write_bytes(base64.b64decode(data))`). Do not save the base64 text itself."
+        ),
+    }
     if errors:
-        lines.append(f"Failed ({len(errors)}):")
-        lines += [f"  {e}" for e in errors]
-    return "\n".join(lines)
-
-
-@mcp.tool()
-def quarantine_panel(panel_name: str, project_path: str | None = None) -> str:
-    """Move a problematic panel file to the quarantine/ subdirectory.
-
-    Use this when a panel file causes exceptions during loading or
-    weld extraction, or when the user identifies a file as malformed.
-    The file is preserved for investigation but excluded from the
-    active weld log and CSV export.
-    """
-    directory = _find_project_dir(project_path)
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-    filepath = _resolve_panel_path(directory, panel_name)
-    if filepath is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not filepath.exists():
-        return f"Panel file not found: {filepath}"
-
-    quarantine = _quarantine_dir(directory)
-    quarantine.mkdir(exist_ok=True)
-    dest = quarantine / filepath.name
-    if dest.exists():
-        return f"'{panel_name}.weldb' is already in quarantine."
-    shutil.move(str(filepath), str(dest))
-    return f"Moved {filepath.name} to {quarantine}/"
-
-
-@mcp.tool()
-def restore_from_quarantine(panel_name: str, project_path: str | None = None) -> str:
-    """Restore a panel file from quarantine/ back to the project directory.
-
-    Use this after fixing the issue that caused the file to be quarantined.
-    """
-    directory = _find_project_dir(project_path)
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-    quarantine = _quarantine_dir(directory)
-    src = _resolve_panel_path(quarantine, panel_name)
-    dest = _resolve_panel_path(directory, panel_name)
-    if src is None or dest is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not src.exists():
-        return f"'{panel_name}.weldb' not found in quarantine."
-    if dest.exists():
-        return f"'{panel_name}.weldb' already exists in the project directory. Remove or rename it first."
-    shutil.move(str(src), str(dest))
-    return f"Restored {panel_name}.weldb to {directory}/"
-
-
-@mcp.tool()
-def archive_panel(panel_name: str, project_path: str | None = None) -> str:
-    """Move a panel file to the archive/ subdirectory.
-
-    Use this for cancelled scope, superseded designs, or completed teardowns.
-    The file is preserved for audit but excluded from the active weld log.
-    Never delete panel files — archive them instead.
-    """
-    directory = _find_project_dir(project_path)
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-    filepath = _resolve_panel_path(directory, panel_name)
-    if filepath is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not filepath.exists():
-        return f"Panel file not found: {filepath}"
-
-    archive = _archive_dir(directory)
-    archive.mkdir(exist_ok=True)
-    dest = archive / filepath.name
-    if dest.exists():
-        return f"'{panel_name}.weldb' is already in archive."
-    shutil.move(str(filepath), str(dest))
-    return f"Archived {filepath.name} to {archive}/"
-
-
-@mcp.tool()
-def restore_from_archive(panel_name: str, project_path: str | None = None) -> str:
-    """Restore a panel file from archive/ back to the project directory.
-
-    Use this when cancelled scope is reinstated.
-    """
-    directory = _find_project_dir(project_path)
-    guard = _reject_code_dir(directory)
-    if guard:
-        return guard
-    archive = _archive_dir(directory)
-    src = _resolve_panel_path(archive, panel_name)
-    dest = _resolve_panel_path(directory, panel_name)
-    if src is None or dest is None:
-        return f"Invalid panel name '{panel_name}'."
-    if not src.exists():
-        return f"'{panel_name}.weldb' not found in archive."
-    if dest.exists():
-        return f"'{panel_name}.weldb' already exists in the project directory. Remove or rename it first."
-    shutil.move(str(src), str(dest))
-    return f"Restored {panel_name}.weldb to {directory}/"
-
-
-@mcp.tool()
-def list_quarantine(project_path: str | None = None) -> str:
-    """List all files in the quarantine/ subdirectory."""
-    directory = _find_project_dir(project_path)
-    quarantine = _quarantine_dir(directory)
-    if not quarantine.exists():
-        return "No quarantine directory exists (no files have been quarantined)."
-    files = sorted(quarantine.glob("*.weldb"))
-    if not files:
-        return "Quarantine is empty."
-    lines = [f"Quarantined files ({len(files)}):"]
-    for f in files:
-        lines.append(f"  {f.name}")
-    return "\n".join(lines)
-
-
-@mcp.tool()
-def list_archive(project_path: str | None = None) -> str:
-    """List all files in the archive/ subdirectory."""
-    directory = _find_project_dir(project_path)
-    archive = _archive_dir(directory)
-    if not archive.exists():
-        return "No archive directory exists (no files have been archived)."
-    files = sorted(archive.glob("*.weldb"))
-    if not files:
-        return "Archive is empty."
-    lines = [f"Archived files ({len(files)}):"]
-    for f in files:
-        lines.append(f"  {f.name}")
-    return "\n".join(lines)
-
-
-@mcp.tool()
-def regenerate_all_csv_files(project_path: str | None = None) -> str:
-    """Regenerate all three CSV files from active .weldb files.
-
-    Pass ``project_path`` pointing at the user's project folder. Produces
-    point_welds.csv, linear_welds.csv, and area_welds.csv in that folder. Each
-    weld row carries its effective properties — the panel's top-level properties
-    (material, OD, wall, units, elevation, custom fields) merged with the
-    type-level and weld-specific overrides that apply (e.g. linear length, area
-    height). Call this after creating, archiving, quarantining, or restoring
-    panels to keep the CSVs up to date. Files that fail to load or validate are
-    reported and skipped (never moved) — fix them, or quarantine them explicitly
-    with quarantine_panel, then re-run.
-    """
-    directory = _find_project_dir(project_path)
-    return _regenerate_all_csv_files(directory)
+        result["errors"] = errors
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1190,13 +963,16 @@ def regenerate_all_csv_files(project_path: str | None = None) -> str:
 def create_panel_workflow() -> str:
     """Guided workflow for creating a new boiler panel from user description."""
     return (
-        "The user wants to create a new boiler panel weld map. Follow these steps:\n\n"
-        "1. First, call list_panels to see what panels already exist in the project.\n"
+        "The user wants to create a new boiler panel weld map. This server is "
+        "stateless — you own all file I/O. Follow these steps:\n\n"
+        "1. Read the existing .weldb files in the user's project folder (your own "
+        "file tools) so you know what panels exist.\n"
         "2. Call read_doc with 'panel_naming_convention.md' to understand naming rules.\n"
         "3. From the user's description, determine:\n"
         "   - Which wall (N, S, E, W, T, LS, H, TB, etc.)\n"
         "   - The tube range (e.g., tubes 125 to 150)\n"
-        "4. Call suggest_panel_name with the wall code to get the next available name.\n"
+        "4. Call suggest_panel_name with the wall code and the existing panel names "
+        "to get the next available name.\n"
         "5. Ask the user for tube parameters if not already provided:\n"
         "   - tube_mtrl (e.g., SA-210 A1)\n"
         "   - tube_od (e.g., 2.0)\n"
@@ -1204,7 +980,8 @@ def create_panel_workflow() -> str:
         "   - units (e.g., in)\n"
         "   - elevation (e.g., 1850 in, or Scaffold L3)\n"
         "6. Confirm all parameters with the user before calling create_panel.\n"
-        "7. After creation, show the user what was created."
+        "7. Write create_panel's returned `content` to `<panel_name>.weldb` in the "
+        "user's project folder, then show the user what was created."
     )
 
 
@@ -1212,5 +989,95 @@ def create_panel_workflow() -> str:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """CLI for choosing the transport and (for remote) its HTTP binding.
+
+    Defaults are read from the environment so the server can be configured with
+    no arguments in a container: ``WELDB_HOST``, ``WELDB_PORT``, ``WELDB_PATH``,
+    ``WELDB_LOG_LEVEL``.
+    """
+    parser = argparse.ArgumentParser(
+        prog="weldb-mcp",
+        description=(
+            "weldb MCP server — stateless, logic-only. Runs over stdio by default "
+            "(one local client); pass 'remote' to serve many concurrent sessions "
+            "over streamable HTTP. The server never reads or writes project files; "
+            "the AI agent owns all local file I/O."
+        ),
+    )
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        choices=["stdio", "remote"],
+        default="stdio",
+        help="Transport to run. 'stdio' (default) for a single local client, "
+        "'remote' for a hostable streamable-HTTP server handling multiple sessions.",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("WELDB_HOST", "127.0.0.1"),
+        help="Remote mode: interface to bind (default 127.0.0.1; use 0.0.0.0 to "
+        "accept connections from other hosts).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("WELDB_PORT", "8000")),
+        help="Remote mode: TCP port to listen on (default 8000).",
+    )
+    parser.add_argument(
+        "--path",
+        default=os.environ.get("WELDB_PATH", "/mcp"),
+        help="Remote mode: HTTP path the streamable-HTTP endpoint is served at "
+        "(default /mcp).",
+    )
+    parser.add_argument(
+        "--stateless",
+        action="store_true",
+        help="Remote mode: run stateless HTTP (no per-session state kept between "
+        "requests). This server holds no state either way, so this is safe and "
+        "ideal behind a load balancer with multiple replicas.",
+    )
+    parser.add_argument(
+        "--json-response",
+        action="store_true",
+        help="Remote mode: return plain JSON responses instead of SSE streams.",
+    )
+    parser.add_argument(
+        "--log-level",
+        default=os.environ.get("WELDB_LOG_LEVEL", "INFO"),
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level (default INFO).",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Parse startup arguments and run the server on the selected transport."""
+    args = _build_arg_parser().parse_args(argv)
+
+    mcp.settings.log_level = args.log_level
+
+    if args.mode == "stdio":
+        mcp.run(transport="stdio")
+        return
+
+    # Remote: hostable streamable-HTTP transport with concurrent sessions.
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+    mcp.settings.streamable_http_path = args.path
+    mcp.settings.stateless_http = args.stateless
+    mcp.settings.json_response = args.json_response
+
+    print(
+        f"weldb MCP server (remote/streamable-HTTP, stateless logic-only) "
+        f"listening on http://{args.host}:{args.port}{args.path}"
+        + ("  [stateless-http]" if args.stateless else ""),
+        file=sys.stderr,
+    )
+    mcp.run(transport="streamable-http")
+
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    main()

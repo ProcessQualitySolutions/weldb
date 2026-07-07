@@ -91,6 +91,64 @@ its grid is laid out.
 The MCP server exposes these through `list_examples`, `list_example_files`,
 `read_example_file`, and `render_example` (renders an example to PDF).
 
+## MCP Server
+
+`mcp_app.py` is a **stateless, logic-only** MCP server. It holds no project state
+and writes no project files: every tool takes the `.weldb` content it needs as
+input and returns generated content — `.weldb`/CSV/JSON as text, and PDFs as
+base64 text — for the **AI agent to save on the user's own machine**. The agent
+owns all local file I/O (creating, reading, listing, moving, and deleting
+`.weldb`/CSV/PDF files). The only files the server reads are its own bundled,
+read-only references: the spec `.md` documents and the worked-example catalog.
+This makes it safe to host online as a lightweight service.
+
+**Saving PDFs.** The render tools (`render_pdf`, `render_revision_history`,
+`render_example`) return the PDF as a base64 string in a `data` field alongside a
+`filename` (`render_example` returns one such entry per PDF under `files`). To keep
+a PDF, the agent decodes `data` and writes the raw bytes to `filename` as a
+**binary** write — e.g. `pathlib.Path(filename).write_bytes(base64.b64decode(data))`
+— never saving the base64 text itself. Each tool result also carries a `note`
+spelling this out.
+
+```bash
+# Local (stdio) — one client owns the process:
+python mcp_app.py
+mcp run mcp_app.py
+
+# Hosted (streamable HTTP) — many concurrent sessions:
+python mcp_app.py remote --host 0.0.0.0 --port 8000
+```
+
+Remote flags (host/port/path/log-level also settable via `WELDB_*` env vars):
+
+| Flag | Env | Default | Meaning |
+|------|-----|---------|---------|
+| `--host` | `WELDB_HOST` | `127.0.0.1` | Bind interface (`0.0.0.0` to accept remote connections) |
+| `--port` | `WELDB_PORT` | `8000` | TCP port |
+| `--path` | `WELDB_PATH` | `/mcp` | HTTP path of the streamable-HTTP endpoint |
+| `--stateless` | | off | Stateless HTTP (ideal behind a load balancer — the server keeps no state either way) |
+| `--json-response` | | off | Plain JSON responses instead of SSE streams |
+| `--log-level` | `WELDB_LOG_LEVEL` | `INFO` | Logging level |
+
+### Tools
+
+| Tool | In → Out |
+|------|----------|
+| `create_panel` | panel params → `.weldb` YAML text to save |
+| `summarize_panels` | list of `.weldb` contents → validated summary |
+| `suggest_panel_name` | wall code + existing panel names → next name |
+| `render_pdf` / `render_revision_history` | `.weldb` content → PDF as base64 text (`data` field) |
+| `extract_weld_positions` | `.weldb` content → weld-position JSON text |
+| `build_weld_csvs` | list of `.weldb` contents → point/linear/area CSV text |
+| `list_docs` / `read_doc` | — → bundled spec documents |
+| `list_examples` / `list_example_files` / `read_example_file` | — → bundled example catalog |
+| `render_example` | example ref → PDF(s) as base64 text (`files[].data`) |
+
+Each connecting client gets its own MCP session and the server keeps no
+cross-session state, so hosting for multiple users is safe by construction — there
+is no shared project directory to collide on. Install the deps with
+`pip install -e ".[remote]"` (or `.[mcp]` for local stdio).
+
 ## Specs
 
 - [drawing_spec.md](drawing_spec.md) — `.weldb` file format

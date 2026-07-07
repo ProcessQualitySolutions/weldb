@@ -849,18 +849,43 @@ def render_pdf(
 
     Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
     """
+    from weldb.document import load
+
+    source_path = Path(source_path)
+    doc = load(source_path)
+    pdf_path = Path(output_path) if output_path is not None else source_path.with_suffix(".pdf")
+
+    pdf = _build_panel_pdf(doc, color=color)
+    pdf.output(str(pdf_path))
+    return pdf_path
+
+
+def render_pdf_bytes(doc: dict[str, Any], color: bool = False) -> bytes:
+    """Render an already-loaded weldb ``doc`` to PDF bytes, without touching disk.
+
+    The in-memory counterpart of :func:`render_pdf` (same layout): pass a document
+    parsed with :func:`weldb.load`/:func:`weldb.loads` and get the PDF as bytes,
+    so a caller (e.g. a stateless server) can hand it to a client to save itself
+    rather than writing a file. See :func:`render_pdf` for the ``color`` option
+    and the sheet layout.
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
+    return bytes(_build_panel_pdf(doc, color=color).output())
+
+
+def _build_panel_pdf(doc: dict[str, Any], *, color: bool):
+    """Build the single-sheet panel drawing and return the FPDF object.
+
+    Shared by :func:`render_pdf` (which writes it to a path) and
+    :func:`render_pdf_bytes` (which returns its bytes).
+    """
     try:
         from fpdf import FPDF
     except ImportError as exc:
         raise ImportError(
             "PDF rendering requires fpdf2. Install with: pip install weldb[pdf]"
         ) from exc
-
-    from weldb.document import load
-
-    source_path = Path(source_path)
-    doc = load(source_path)
-    pdf_path = Path(output_path) if output_path is not None else source_path.with_suffix(".pdf")
 
     pdf = FPDF(orientation="L", unit="mm", format="letter")
     pdf.set_auto_page_break(auto=False)
@@ -886,8 +911,7 @@ def render_pdf(
     # --- Title block (bottom 20%) ---
     _draw_title_block(pdf, doc, m, title_y, iw, title_h, color=color)
 
-    pdf.output(str(pdf_path))
-    return pdf_path
+    return pdf
 
 
 # Revision-history sheet: column widths as fractions of the inner width.
@@ -915,13 +939,6 @@ def render_revision_history_pdf(
 
     Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
     """
-    try:
-        from fpdf import FPDF
-    except ImportError as exc:
-        raise ImportError(
-            "PDF rendering requires fpdf2. Install with: pip install weldb[pdf]"
-        ) from exc
-
     from weldb.document import load
 
     source_path = Path(source_path)
@@ -931,9 +948,39 @@ def render_revision_history_pdf(
         if output_path is not None
         else source_path.with_name(f"{source_path.stem}_revisions.pdf")
     )
+    panel = str(doc.get("panel_name", source_path.stem))
+    pdf = _build_revision_history_pdf(doc, panel)
+    pdf.output(str(pdf_path))
+    return pdf_path
+
+
+def render_revision_history_pdf_bytes(doc: dict[str, Any]) -> bytes:
+    """Render a revision-history sheet to PDF bytes, without touching disk.
+
+    The in-memory counterpart of :func:`render_revision_history_pdf`: pass a
+    document parsed with :func:`weldb.load`/:func:`weldb.loads` and get the PDF
+    as bytes for a caller to persist itself.
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
+    panel = str(doc.get("panel_name", "panel"))
+    return bytes(_build_revision_history_pdf(doc, panel).output())
+
+
+def _build_revision_history_pdf(doc: dict[str, Any], panel: str):
+    """Build the revision-history sheet(s) and return the FPDF object.
+
+    Shared by :func:`render_revision_history_pdf` (writes to a path) and
+    :func:`render_revision_history_pdf_bytes` (returns bytes).
+    """
+    try:
+        from fpdf import FPDF
+    except ImportError as exc:
+        raise ImportError(
+            "PDF rendering requires fpdf2. Install with: pip install weldb[pdf]"
+        ) from exc
 
     maps = doc.get("maps", [])
-    panel = str(doc.get("panel_name", source_path.stem))
 
     pdf = FPDF(orientation="L", unit="mm", format="letter")
     pdf.set_auto_page_break(auto=False)
@@ -1007,8 +1054,7 @@ def render_revision_history_pdf(
         pdf.set_xy(x_rev + pad, row_top)
         pdf.cell(iw - 2 * pad, line_h, "(no revisions recorded)")
         close_table(row_top + line_h)
-        pdf.output(str(pdf_path))
-        return pdf_path
+        return pdf
 
     for mp in maps:  # oldest -> newest, top to bottom
         pdf.set_font("Helvetica", "", 8)
@@ -1038,8 +1084,7 @@ def render_revision_history_pdf(
         row_top = row_bottom
 
     close_table(row_top)
-    pdf.output(str(pdf_path))
-    return pdf_path
+    return pdf
 
 
 _TYPE_BY_PREFIX = {"*": "point", "_": "linear", "@": "area"}
@@ -1086,17 +1131,27 @@ def weld_positions(source_path: str | Path, *, include_text: bool = False) -> di
 
     Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
     """
+    from weldb.document import load
+
+    return weld_positions_from_doc(load(Path(source_path)), include_text=include_text)
+
+
+def weld_positions_from_doc(doc: dict[str, Any], *, include_text: bool = False) -> dict[str, Any]:
+    """Compute weld-region bounding boxes from an already-loaded ``doc``.
+
+    The in-memory counterpart of :func:`weld_positions` (see there for the
+    returned shape and coordinate conventions): pass a document parsed with
+    :func:`weldb.load`/:func:`weldb.loads` and get the position dict without
+    touching disk.
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
     try:
         from fpdf import FPDF
     except ImportError as exc:
         raise ImportError(
             "Weld position extraction requires fpdf2. Install with: pip install weldb[pdf]"
         ) from exc
-
-    from weldb.document import load
-
-    source_path = Path(source_path)
-    doc = load(source_path)
 
     pdf = FPDF(orientation="L", unit="mm", format="letter")
     pdf.set_auto_page_break(auto=False)
@@ -1162,6 +1217,31 @@ def _apply_canvas_pixels(data: dict[str, Any], canvas_w: float, canvas_h: float)
             weld["py0"] = round(weld["y0"] * sy)
             weld["px1"] = round(weld["x1"] * sx)
             weld["py1"] = round(weld["y1"] * sy)
+
+
+def weld_positions_data(
+    doc: dict[str, Any],
+    *,
+    include_text: bool = False,
+    canvas_w: float | None = None,
+    canvas_h: float | None = None,
+) -> dict[str, Any]:
+    """Weld-position data (optionally with canvas pixels) from an in-memory ``doc``.
+
+    The disk-free counterpart of :func:`write_weld_positions`: computes the same
+    dict (see :func:`weld_positions` for its shape) and, when both ``canvas_w``
+    and ``canvas_h`` are given, adds integer pixel corners scaled to that canvas.
+    Returns the dict instead of writing a JSON file, so a caller can serialize
+    and persist it itself.
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
+    if (canvas_w is None) != (canvas_h is None):
+        raise ValueError("Provide both canvas_w and canvas_h, or neither")
+    data = weld_positions_from_doc(doc, include_text=include_text)
+    if canvas_w is not None and canvas_h is not None:
+        _apply_canvas_pixels(data, canvas_w, canvas_h)
+    return data
 
 
 def write_weld_positions(

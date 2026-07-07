@@ -15,15 +15,21 @@ from weldb.document import (
     add_revision,
     custom_field_getter,
     custom_field_setter,
+    dumps,
     load,
+    loads,
     save,
 )
 from weldb.export import to_csv, to_json, to_xlsx
 from weldb.render import (
     render_monospace,
     render_pdf,
+    render_pdf_bytes,
     render_revision_history_pdf,
+    render_revision_history_pdf_bytes,
     weld_positions,
+    weld_positions_data,
+    weld_positions_from_doc,
     write_weld_positions,
 )
 from weldb.models import AreaWeld, LinearWeld, PointWeld
@@ -39,7 +45,9 @@ __version__ = "0.1.0"
 
 __all__ = [
     "load",
+    "loads",
     "save",
+    "dumps",
     "add_revision",
     "custom_field_getter",
     "custom_field_setter",
@@ -49,8 +57,12 @@ __all__ = [
     "resolve_weld_properties",
     "render_monospace",
     "render_pdf",
+    "render_pdf_bytes",
     "render_revision_history_pdf",
+    "render_revision_history_pdf_bytes",
     "weld_positions",
+    "weld_positions_data",
+    "weld_positions_from_doc",
     "write_weld_positions",
     "build_weld_log",
     "prefix_weld_id",

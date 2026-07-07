@@ -19,10 +19,31 @@ dependencies = [
 pdf = [
     "fpdf2>=2.7",
 ]
+# Local (stdio) MCP server. fpdf2 is needed for the PDF-rendering tools.
+mcp = [
+    "mcp>=1.2",
+    "fpdf2>=2.7",
+]
+# Hostable streamable-HTTP transport for the MCP server (python mcp_app.py remote).
+remote = [
+    "mcp>=1.2",
+    "fpdf2>=2.7",
+    "uvicorn>=0.27",
+    "starlette>=0.37",
+]
 dev = [
     "pytest>=7.0",
     "ruff>=0.4",
 ]
+
+[project.scripts]
+weldb-mcp = "mcp_app:main"
+
+# mcp_app.py is a top-level module at the repo root (not under src/), so it must
+# be listed explicitly alongside the src-layout package discovery for the
+# weldb-mcp console script to import it.
+[tool.setuptools]
+py-modules = ["mcp_app"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
