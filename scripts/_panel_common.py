@@ -19,6 +19,8 @@ from pathlib import Path
 # Bundled library — put src/ on the path so `import weldb` works with no install.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from build_weld_csvs import build_csvs  # noqa: E402  (sibling script)
+
 from weldb import custom_field_setter, dumps, loads, save_panel  # noqa: E402
 
 WALL_CODES = [
@@ -174,10 +176,8 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
                    help="Add an extra empty view by name (repeatable).")
     p.add_argument("--out-dir", default=".", help="Directory to write <panel>.weldb into (default: cwd).")
     p.add_argument("--stdout", action="store_true", help="Print the YAML instead of writing a file.")
-    p.add_argument("--no-render", dest="render", action="store_false",
-                   help="Only write the .weldb scaffold; skip rendering the PDF and weld-position JSON.")
     p.add_argument("--no-color", dest="color", action="store_false", help="Render the PDF black-on-white.")
-    p.set_defaults(render=True, color=True)
+    p.set_defaults(color=True)
 
 
 def build_doc(args: argparse.Namespace, grid_builder) -> dict:
@@ -244,31 +244,37 @@ def write_result(args: argparse.Namespace, doc: dict, style_label: str) -> int:
 
     n_tubes = args.tube_end - args.tube_start + 1
     view_names = ", ".join(v["name"] for v in doc["maps"][0]["views"])
-    out = Path(args.out_dir) / f"{args.panel_name}.weldb"
-    out.parent.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out_dir)
+    out = out_dir / f"{args.panel_name}.weldb"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Always render on save: write the .weldb and (re)generate its PDF + weld
-    # positions together, so a new scaffold never lands without its artifacts.
-    render_note = ""
+    # Always render on save: write the .weldb and render its PDF together, so a
+    # new scaffold never lands without its drawing. Rendering is not optional.
     try:
-        written = save_panel(doc, out, color=args.color, render=args.render)
+        written = save_panel(doc, out, color=args.color)
     except ImportError as exc:
-        written = {"weldb": out}  # save_panel wrote the YAML before rendering failed
-        render_note = (
-            f"\nPDF/weld-position rendering skipped — needs fpdf2: {exc}. "
+        raise SystemExit(
+            f"Wrote {out} (validated) but could not render — needs fpdf2: {exc}. "
             "Install it (`pip install fpdf2`) or build an HTML artifact "
             "(references/html_artifact_editor.md)."
         )
+
+    # Rebuild the project weld CSVs for the output directory so the new panel's
+    # welds and their coordinates appear immediately.
+    files = sorted(out_dir.glob("*.weldb"))
+    texts, _counts, _skipped = build_csvs(files)
+    for csv_name, text in texts.items():
+        (out_dir / csv_name).write_text(text, encoding="utf-8")
 
     artifacts = ", ".join(str(p) for role, p in written.items() if role != "weldb")
     print(
         f"Wrote {out} — {style_label}, tubes {args.tube_start}-{args.tube_end} "
         f"({n_tubes} tubes), {n_tubes * 2} point welds, {n_tubes * 2} membrane welds, "
         f"views: {view_names}."
-        + (f"\nRendered: {artifacts}." if artifacts else "")
+        + f"\nRendered: {artifacts}."
+        + f"\nRebuilt weld CSVs in {out_dir}."
         + "\nThis is a scaffold — edit the YAML to match the real panel (see "
         "references/drawing_spec.md and examples/), then re-save it with "
         "scripts/save_panel.py to re-render its artifacts."
-        + render_note
     )
     return 0

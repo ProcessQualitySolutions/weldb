@@ -4,7 +4,7 @@ This document describes the intended usage patterns, file management rules, and 
 
 ## Who does what
 
-**Everything in this document — maintaining the project directory, deriving CSVs, rendering PDFs, quarantining/archiving files — is done locally**, using ordinary filesystem tools and the bundled `weldb` library via the skill's scripts (`scripts/save_panel.py`, `scripts/archive_panel.py`, `scripts/build_weld_csvs.py`, `scripts/create_panel.py`). The `.weldb` YAML files are the source of truth; the CSVs, PDFs, and position maps are derived artifacts — a panel's PDF and position map are re-rendered on every save, and the CSVs are rebuilt on demand. Where this document says "processing" happens, read it as a local operation on the user's machine.
+**Everything in this document — maintaining the project directory, deriving CSVs, rendering PDFs, quarantining/archiving files — is done locally**, using ordinary filesystem tools and the bundled `weldb` library via the skill's scripts (`scripts/save_panel.py`, `scripts/archive_panel.py`, `scripts/build_weld_csvs.py`, `scripts/create_panel.py`). The `.weldb` YAML files are the source of truth; the CSVs and PDFs are derived artifacts — a panel's PDF is re-rendered and the project CSVs are rebuilt on every save (the CSVs carry each weld's on-drawing coordinates, so they are also the weld-position map). Where this document says "processing" happens, read it as a local operation on the user's machine.
 
 ## Purpose of weldb
 
@@ -27,7 +27,7 @@ The agent renders PDFs locally with the `weldb` library, then writes them into t
 
 ### Always Render on Save
 
-Saving a panel and rendering its derived artifacts are **one operation, not two**. Every time a `.weldb` file is created or updated, its PDF (`<panel>.pdf`) and weld-position map (`<panel>_weld_positions.json`) are re-rendered in the same step, so a derived artifact can never lag behind its source (`weldb.save_panel` / `scripts/save_panel.py`; the `create_panel*` scaffolds render on save too). See the "Always Render on Save" principle in `weldb_design_philosophy.md`. The project-wide CSVs aggregate all panels and are rebuilt separately after a panel changes.
+Saving a panel and regenerating its derived artifacts are **one operation, not two** — and there is no way to save without them. Every time a `.weldb` file is created or updated, its PDF (`<panel>.pdf`) is re-rendered **and** the project-wide weld CSVs are rebuilt in the same step, so no derived artifact can lag behind its source (`weldb.save_panel` renders the PDF; the skill's save scripts — `scripts/save_panel.py`, `scripts/create_panel*.py`, `scripts/create_panels.py` — rebuild the CSVs in the same run). See the "Always Render on Save" principle in `weldb_design_philosophy.md`. Weld coordinates live in the CSVs (`x0, y0, x1, y1` per weld, leftmost view); there is no separate `_weld_positions.json` file.
 
 ### Re-render Detection
 
@@ -35,9 +35,13 @@ Because saving always re-renders, PDFs do not normally fall behind. For files to
 
 ## Weld ID Uniqueness
 
-Weld IDs **must be unique across an entire project**, not just within a single file. When combining welds from multiple `.weldb` panel files in a project, duplicate weld IDs across files are an error and must be rejected.
+Weld IDs **must be unique across an entire project — but the ID that must be unique is the panel-prefixed one** (`<panel>.<weld>`), not the bare grid label. Every weld's project ID is formed by prefixing its grid label with the panel name and stripping the type prefix: grid `*T100` on panel `N5` becomes `N5.T100`. When combining welds from multiple `.weldb` files, two identical **prefixed** IDs are an error and must be rejected.
 
-After stripping the type prefix (`*`, `_`, `@`), weld base IDs must also not collide across weld types within a file. For example, `*T205` and `_T205` sharing the base ID `T205` is an error.
+**The same grid label on different panels is NOT a collision.** Because the panel name disambiguates, two panels can carry the same weld labels without conflict. In particular, two panels that cover the same tubes at different elevations (for example `N1` and `N9`, each numbering tubes `T100`–`T103`) are perfectly valid: their welds become `N1.T100…` and `N9.T100…`. **Do not archive or rename a panel merely because another panel uses the same grid labels** — check for a duplicate *prefixed* ID (same panel *and* same weld), which only happens if the same physical weld is recorded on two panels.
+
+After stripping the type prefix (`*`, `_`, `@`), weld base IDs must also not collide across weld types within a single file. For example, `*T205` and `_T205` sharing the base ID `T205` is an error.
+
+**Check this with the tool, not by hand.** `scripts/validate_welds.py ./project` (library: `weldb.validate_project(dir)`) verifies all of the above across a project in one pass — panel/filename match, distinct panel names, within-file grid rules, and project-wide prefixed point-weld uniqueness — and reports every violation. Run it before deciding a weld number "already exists"; distinct panel names plus clean per-file grids already guarantee uniqueness, so there is nothing to infer.
 
 ## Project Directory Structure
 
@@ -68,7 +72,7 @@ Quarantined files are excluded from the weld log, CSV export, and PDF rendering.
 
 ### `archive/`
 
-Panels removed from the active scope — due to cancelled work, superseded designs, or completed teardowns — are moved to the `archive/` subdirectory rather than deleted. **A panel is archived as a whole set:** its `.weldb` source **and** all of its derived files (`<panel>.pdf`, `<panel>_weld_positions.json`, `<panel>_revisions.pdf`) move together, so the archive holds the complete panel, not an orphaned source. Use `weldb.archive_panel` / `scripts/archive_panel.py`.
+Panels removed from the active scope — due to cancelled work, superseded designs, or completed teardowns — are moved to the `archive/` subdirectory rather than deleted. **A panel is archived as a whole set:** its `.weldb` source **and** all of its derived files (`<panel>.pdf`, `<panel>_revisions.pdf`) move together, so the archive holds the complete panel, not an orphaned source. Use `weldb.archive_panel` / `scripts/archive_panel.py`.
 
 Archived files:
 
@@ -84,13 +88,15 @@ Archiving is **non-destructive and batch-consistent**. Scope changes can force t
 
 The agent regenerates three CSV files locally — with the `weldb` library, from all active `.weldb` files in the project directory (excluding `quarantine/` and `archive/`) — whenever the panels change:
 
+Each row carries the weld's panel, panel-prefixed weld ID, source file, its on-drawing bounding box (`x0, y0, x1, y1` — millimetres, top-left origin, mapped in the leftmost view the weld appears in), and its resolved properties. The four coordinate columns are a **rectangle**, not two points: `(x0, y0)` is the top-left corner and `(x1, y1)` the bottom-right corner (`x0 ≤ x1`, `y0 ≤ y1`, y increasing downward).
+
 | File | Contents |
 |------|----------|
-| `point_welds.csv` | One row per point weld — panel, weld ID, grid position, source file. Deduplicated across views. |
-| `linear_welds.csv` | One row per linear weld ID — panel, weld ID, cell count, source file. |
-| `area_welds.csv` | One row per area weld ID — panel, weld ID, cell count, source file. |
+| `point_welds.csv` | One row per point weld — panel, weld ID, source file, `x0..y1`, resolved properties. Deduplicated across views and across the project. |
+| `linear_welds.csv` | One row per linear weld ID — panel, weld ID, source file, `x0..y1`, resolved properties. |
+| `area_welds.csv` | One row per area weld ID — panel, weld ID, source file, `x0..y1`, resolved properties. |
 
-These files are always derived artifacts — the YAML files remain the source of truth. Any file that causes an exception during CSV generation should be moved to `quarantine/`.
+These files are always derived artifacts — the YAML files remain the source of truth. They also **replace the old per-panel `_weld_positions.json`**: the `x0..y1` columns are the weld-position map. Any file that causes an exception during CSV generation should be moved to `quarantine/`. (Computing the coordinate columns needs `fpdf2`; without it the CSVs still build but the `x0..y1` cells are blank.)
 
 ## Organizational Guidance
 

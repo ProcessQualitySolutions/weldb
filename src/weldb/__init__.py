@@ -23,18 +23,18 @@ from weldb.document import (
 from weldb.export import to_csv, to_json, to_xlsx
 from weldb.panel import archive_panel, derived_artifact_paths, save_panel
 from weldb.render import (
+    first_view_weld_boxes,
     render_monospace,
-    render_panel_bundle,
     render_pdf,
     render_pdf_bytes,
     render_revision_history_pdf,
     render_revision_history_pdf_bytes,
+    weld_canvas_boxes,
     weld_positions,
-    weld_positions_data,
     weld_positions_from_doc,
-    write_weld_positions,
 )
 from weldb.models import AreaWeld, LinearWeld, PointWeld
+from weldb.validation import ValidationIssue, validate_files, validate_project
 from weldb.weld_log import WELD_ID_SEPARATOR, build_weld_log, prefix_weld_id
 from weldb.welds import (
     get_area_welds,
@@ -61,18 +61,20 @@ __all__ = [
     "get_area_welds",
     "resolve_weld_properties",
     "render_monospace",
-    "render_panel_bundle",
     "render_pdf",
     "render_pdf_bytes",
     "render_revision_history_pdf",
     "render_revision_history_pdf_bytes",
     "weld_positions",
-    "weld_positions_data",
     "weld_positions_from_doc",
-    "write_weld_positions",
+    "first_view_weld_boxes",
+    "weld_canvas_boxes",
     "build_weld_log",
     "prefix_weld_id",
     "WELD_ID_SEPARATOR",
+    "validate_project",
+    "validate_files",
+    "ValidationIssue",
     "to_json",
     "to_csv",
     "to_xlsx",

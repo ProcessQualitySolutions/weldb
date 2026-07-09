@@ -6,7 +6,7 @@ The weldb file format uses YAML to define 2D weld map layouts. Each file describ
 
 weldb files use the `.weldb` extension and are valid YAML. The `panel_name` field **must** match the filename (excluding extension). For example, a file named `N5.weldb` must contain `panel_name: N5`.
 
-A project consists of multiple `.weldb` files in the same directory, one per panel. Weld numbers must be unique across all files in a project (see Weld Rules below).
+A project consists of multiple `.weldb` files in the same directory, one per panel. Weld numbers must be unique across a project **after each is prefixed with its panel name** (grid `*T100` on panel `N5` becomes the project ID `N5.T100`) — see Weld Rules below. The same grid weld label may therefore repeat on different panels without conflict: two panels covering the same tubes at different elevations (e.g. `N1` and `N9`, each with `T100`) produce `N1.T100` and `N9.T100`, which do **not** collide. Only a genuinely duplicated *prefixed* ID is an error.
 
 ## Required Top-Level Fields
 
@@ -25,7 +25,7 @@ A project consists of multiple `.weldb` files in the same directory, one per pan
 | Field    | Type   | Description |
 |-------------|--------|-------------|
 | `panel_length` | number | Physical length of the panel, in the document's unit system. Optional. It informs the length of the long **side membrane welds** that run the full length of the panel — see [Membrane Weld Lengths](#membrane-weld-lengths-peanut-vs-side). |
-| `elevation_at` | string | Free-form note for what `elevation` refers to (e.g. `top` or `bottom`). Optional; contents are not constrained. |
+| `elevation_at` | string | Free-form note for what `elevation` refers to (e.g. `top` or `bottom`). Optional; contents are not constrained. **When `elevation` is given as a range (e.g. `1850–1878 in`), set this to `range` rather than `top`/`bottom` — the value already spans the panel, so a single reference point would be misleading.** |
 
 Like any string/number top-level field, `panel_length` is inherited by every weld as a baseline property. It is named distinctly from the weld `length` override field so it never shadows a weld's own length.
 
@@ -212,7 +212,7 @@ tube_od: 2.0
 tube_wall: 0.15
 units: in
 elevation: 1850 in          # required; free-form (dimension or scaffold floor)
-elevation_at: top           # optional; what the elevation refers to
+elevation_at: top           # optional; what the elevation refers to (use `range` if elevation is a range)
 panel_length: 28            # panel length (optional)
 client: ACME Power          # custom field
 

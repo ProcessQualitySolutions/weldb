@@ -3,8 +3,8 @@
 
 Instead of invoking ``create_panel*`` once per panel (each paying Python + fpdf2
 startup, and each a separate round trip), this scaffolds a whole set of panels
-from one JSON spec and renders every panel's PDF + weld-position JSON on save.
-Fewer round trips, one interpreter start.
+from one JSON spec, renders every panel's PDF on save, and rebuilds the project
+weld CSVs once at the end. Fewer round trips, one interpreter start.
 
 Ideal for panels that belong together — **stacked** (two panels on the same tubes,
 one above the other), **adjacent** (side by side on the same wall), or
@@ -13,10 +13,14 @@ one above the other), **adjacent** (side by side on the same wall), or
     ⚠ Shared tube / membrane welds: whenever you lay out stacked, adjacent, or
     overlapping panels, understand which tube and membrane welds are *shared*
     across the boundary. A weld at the seam between two panels is ONE physical
-    weld and must be recorded on ONE panel only — weld IDs are unique across the
-    whole project (see references/project_spec.md and the adjacent_panels /
-    stacked_panels / overlapping_panels examples). Do not duplicate a shared
-    boundary weld onto both panels.
+    weld and must be recorded on ONE panel only, so it gets ONE project weld ID.
+    This is NOT about grid labels repeating: every weld's project ID is prefixed
+    with its panel name (grid ``*T100`` on panel N1 -> ``N1.T100``), so the SAME
+    grid label on two different panels never collides — two panels on the same
+    tubes at different elevations (e.g. N1 and N9) coexist fine. Only a genuinely
+    shared physical weld written on both panels is a real duplicate. See
+    references/project_spec.md and the adjacent_panels / stacked_panels /
+    overlapping_panels examples.
 
 Spec format — a JSON array of panel objects. Each object mirrors the
 ``create_panel*`` options (underscored keys). Required per panel: ``panel_name``,
@@ -38,10 +42,12 @@ Usage:
     python scripts/create_panels.py --out-dir ./project < panels.json
 
 The whole spec is validated before anything is written, so a bad panel aborts the
-batch without leaving a half-created set. Rendering needs fpdf2 (``pip install
-fpdf2``); without it the ``.weldb`` files are still written and the PDFs/JSON are
-skipped with a warning. Every panel is a STARTING SCAFFOLD — edit each YAML to the
-real panel, then re-save with ``scripts/save_panel.py``.
+batch without leaving a half-created set. Every panel is rendered on save (its
+``.weldb`` and ``.pdf`` together) and the project weld CSVs are rebuilt for the
+output directory afterwards. Rendering needs fpdf2 (``pip install fpdf2``); if it
+is missing the command fails so the stale state is obvious. Every panel is a
+STARTING SCAFFOLD — edit each YAML to the real panel, then re-save with
+``scripts/save_panel.py``.
 """
 
 from __future__ import annotations
@@ -59,6 +65,7 @@ from _panel_common import (  # noqa: E402
     build_extended_grid,
     build_simplified_grid,
 )
+from build_weld_csvs import build_csvs  # noqa: E402  (sibling script)
 
 from weldb import save_panel  # noqa: E402
 
@@ -117,9 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--spec", help="Path to the JSON spec (default: read from stdin).")
     p.add_argument("--out-dir", default=".", help="Directory to write each <panel>.weldb into (default: cwd).")
     p.add_argument("--no-color", dest="color", action="store_false", help="Render PDFs black-on-white.")
-    p.add_argument("--no-render", dest="render", action="store_false",
-                   help="Only write the .weldb scaffolds; skip rendering PDFs and weld-position JSON.")
-    p.set_defaults(color=True, render=True)
+    p.set_defaults(color=True)
     args = p.parse_args(argv)
 
     raw = Path(args.spec).read_text(encoding="utf-8") if args.spec else sys.stdin.read()
@@ -146,23 +151,32 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Created {len(built)} panel(s) in {out_dir}:")
-    render_warned = False
     for name, doc in built:
         out = out_dir / f"{name}.weldb"
         try:
-            written = save_panel(doc, out, color=args.color, render=args.render)
-        except ImportError:
-            written = {"weldb": out}  # YAML written; rendering skipped
-            render_warned = True
-        pdf = written.get("pdf")
-        print(f"  {name:10} {out}" + (f"   -> {pdf}" if pdf else ""))
+            written = save_panel(doc, out, color=args.color)
+        except ImportError as exc:
+            raise SystemExit(
+                f"Wrote the .weldb scaffolds but could not render — needs fpdf2: {exc}\n"
+                "Install it with `pip install fpdf2`."
+            )
+        print(f"  {name:10} {out}   -> {written['pdf']}")
 
-    if render_warned:
-        print(
-            "WARNING: fpdf2 not installed — PDFs and weld positions were skipped. "
-            "Install it with `pip install fpdf2`.",
-            file=sys.stderr,
-        )
+    # Rebuild the project-wide weld CSVs so the new panels' welds and coordinates
+    # are reflected immediately.
+    files = sorted(out_dir.glob("*.weldb"))
+    texts, counts, skipped = build_csvs(files)
+    for csv_name, text in texts.items():
+        (out_dir / csv_name).write_text(text, encoding="utf-8")
+    print(
+        f"  {'CSVs':10} {out_dir} — "
+        f"{counts['point']} point, {counts['linear']} linear, {counts['area']} area rows."
+    )
+    if skipped:
+        print("CSV skipped (fix and re-run):", file=sys.stderr)
+        for s in skipped:
+            print(f"  - {s}", file=sys.stderr)
+
     print(
         "\nEach panel is a scaffold — edit its YAML to the real layout, minding "
         "SHARED tube/membrane welds across stacked/adjacent/overlapping panels "

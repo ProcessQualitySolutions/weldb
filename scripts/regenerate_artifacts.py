@@ -2,25 +2,23 @@
 """Regenerate ALL derived artifacts for a weldb project directory.
 
 Run this after every change — creating, modifying, or deleting a ``.weldb`` file
-— so the derived artifacts never go stale. For each panel it:
+— so the derived artifacts never go stale. For each panel it re-renders the
+drawing PDF (``<panel>.pdf``, in color by default), then rebuilds the
+project-wide weld CSVs (``point_welds.csv``, ``linear_welds.csv``,
+``area_welds.csv``) from every panel at once. The CSVs carry each weld's
+on-drawing coordinates (``x0, y0, x1, y1``, leftmost view), so they are the
+coordinate map — there is no separate per-panel JSON any more.
 
-  * re-renders the drawing PDF (``<panel>.pdf``, in color by default),
-  * extracts the weld-position map (``<panel>_weld_positions.json``),
-
-and then rebuilds the project-wide weld CSVs (``point_welds.csv``,
-``linear_welds.csv``, ``area_welds.csv``) from every panel at once.
-
-By default a panel is **skipped when it is already up to date** — its ``.pdf`` and
-``_weld_positions.json`` both exist and are newer than the ``.weldb`` source — so
-re-running over a project only re-renders what actually changed. Pass ``--force``
-to re-render everything regardless.
-
-The PDF and the weld-position map for each panel are produced in a **single layout
-pass** (``weldb.render_panel_bundle``), not two.
+By default a panel is **skipped when it is already up to date** — its ``.pdf``
+exists and is newer than the ``.weldb`` source — so re-running over a project only
+re-renders what actually changed. Pass ``--force`` to re-render everything
+regardless.
 
 Pass ``--revisions`` to also render each panel's full revision-history PDF. Pass
-``--prune`` to delete orphaned artifacts — a ``.pdf`` / ``_revisions.pdf`` /
-``_weld_positions.json`` whose ``.weldb`` no longer exists.
+``--prune`` to delete orphaned artifacts — a ``.pdf`` / ``_revisions.pdf`` whose
+``.weldb`` no longer exists — and to sweep up any legacy
+``*_weld_positions.json`` files (that artifact was retired in favour of the CSV
+coordinate columns).
 
 For a single panel prefer ``scripts/save_panel.py`` (save + render in one shot);
 this script is for re-syncing a whole directory at once. To retire a panel, use
@@ -30,14 +28,13 @@ Usage:
     python scripts/regenerate_artifacts.py ./project
     python scripts/regenerate_artifacts.py ./project --force --revisions --prune
 
-PDF and weld-position rendering need fpdf2 (``pip install fpdf2``); if it is
-missing, those steps are skipped with a warning and the CSVs are still built.
+PDF rendering needs fpdf2 (``pip install fpdf2``); if it is missing, PDF rendering
+is skipped with a warning and the CSVs are still built (without coordinate cells).
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -55,18 +52,22 @@ def _up_to_date(source: Path, outputs: list[Path]) -> bool:
 
 
 def _prune(directory: Path, panels: set[str]) -> list[str]:
-    """Remove derived files whose source .weldb is gone. Returns removed names."""
+    """Remove derived files whose source .weldb is gone, plus retired artifacts.
+
+    Deletes orphaned ``.pdf`` / ``_revisions.pdf`` (no matching ``.weldb``) and
+    sweeps up every legacy ``*_weld_positions.json`` — that per-panel artifact was
+    retired in favour of the ``x0..y1`` columns in the weld CSVs, so any left on
+    disk are stale. Returns the removed names.
+    """
     removed: list[str] = []
     for pdf in directory.glob("*.pdf"):
         stem = pdf.stem[: -len("_revisions")] if pdf.stem.endswith("_revisions") else pdf.stem
         if stem not in panels:
             pdf.unlink()
             removed.append(pdf.name)
-    for js in directory.glob("*_weld_positions.json"):
-        stem = js.name[: -len("_weld_positions.json")]
-        if stem not in panels:
-            js.unlink()
-            removed.append(js.name)
+    for js in directory.glob("*_weld_positions.json"):  # retired artifact
+        js.unlink()
+        removed.append(js.name)
     return removed
 
 
@@ -96,14 +97,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"No .weldb files in {directory}." + (f" Pruned {len(removed)} orphan(s)." if removed else ""))
         return 0
 
-    rendered = positions = revisions = skipped_fresh = 0
+    rendered = revisions = skipped_fresh = 0
     pdf_errors: list[str] = []
     pdf_available = True
     for f in files:
         if not pdf_available:
             break
         paths = weldb.derived_artifact_paths(f, revisions=args.revisions)
-        outputs = [paths["pdf"], paths["weld_positions"]]
+        outputs = [paths["pdf"]]
         if args.revisions:
             outputs.append(paths["revisions_pdf"])
         if not args.force and _up_to_date(f, outputs):
@@ -111,20 +112,14 @@ def main(argv: list[str] | None = None) -> int:
             continue
         try:
             doc = weldb.load(f)
-            # PDF + weld positions from a single layout pass.
-            bundle = weldb.render_panel_bundle(doc, color=args.color)
-            paths["pdf"].write_bytes(bundle["pdf_bytes"])
-            paths["weld_positions"].write_text(
-                json.dumps(bundle["positions"], indent=2), encoding="utf-8"
-            )
+            paths["pdf"].write_bytes(weldb.render_pdf_bytes(doc, color=args.color))
             rendered += 1
-            positions += 1
             if args.revisions:
                 weldb.render_revision_history_pdf(f)
                 revisions += 1
         except ImportError:
             pdf_available = False
-            print("WARNING: fpdf2 not installed — skipping PDFs and weld positions. "
+            print("WARNING: fpdf2 not installed — skipping PDF rendering. "
                   "Install it with `pip install fpdf2`.", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001 — report per-file, keep going
             pdf_errors.append(f"{f.name}: {exc}")
@@ -135,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         (directory / name).write_text(text, encoding="utf-8")
 
     print(
-        f"Regenerated in {directory}: {rendered} PDF(s), {positions} weld-position map(s)"
+        f"Regenerated in {directory}: {rendered} PDF(s)"
         + (f", {revisions} revision PDF(s)" if args.revisions else "")
         + (f", {skipped_fresh} already up to date" if skipped_fresh else "")
         + f"; CSVs — {counts['point']} point, {counts['linear']} linear, {counts['area']} area rows."

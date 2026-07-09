@@ -1,9 +1,9 @@
 """Tests for the high-level panel operations: save_panel and archive_panel.
 
-These cover the "always render on save" behavior (a save also (re)generates the
-derived PDF and weld-position JSON) and the archive-not-delete behavior (a panel's
-whole file set moves together, and repeated archiving of the same panel name is
-non-destructive and batch-consistent).
+These cover the "always render on save" behavior (a save also renders the derived
+PDF) and the archive-not-delete behavior (a panel's whole file set moves together,
+and repeated archiving of the same panel name is non-destructive and
+batch-consistent).
 """
 
 from __future__ import annotations
@@ -48,15 +48,16 @@ def _write_panel_set(tmp_path, stem="N5"):
     return src
 
 
-def test_save_panel_writes_yaml_pdf_and_positions(tmp_path):
+def test_save_panel_writes_yaml_and_pdf(tmp_path):
     doc = weldb.loads(VALID)
     src = tmp_path / "N5.weldb"
     written = weldb.save_panel(doc, src)
 
     assert written["weldb"] == src and src.exists()
     assert written["pdf"] == tmp_path / "N5.pdf" and written["pdf"].exists()
-    positions = tmp_path / "N5_weld_positions.json"
-    assert written["weld_positions"] == positions and positions.exists()
+    # Weld positions are no longer a per-panel JSON — they live in the CSVs.
+    assert "weld_positions" not in written
+    assert not (tmp_path / "N5_weld_positions.json").exists()
     assert "revisions_pdf" not in written
 
 
@@ -73,23 +74,6 @@ def test_save_panel_revisions_flag_adds_history_pdf(tmp_path):
     assert written["revisions_pdf"].exists()
 
 
-def test_save_panel_no_render_writes_only_yaml(tmp_path):
-    doc = weldb.loads(VALID)
-    written = weldb.save_panel(doc, tmp_path / "N5.weldb", render=False)
-    assert set(written) == {"weldb"}
-    assert not (tmp_path / "N5.pdf").exists()
-    assert not (tmp_path / "N5_weld_positions.json").exists()
-
-
-def test_save_panel_canvas_pixels_in_positions(tmp_path):
-    import json
-
-    doc = weldb.loads(VALID)
-    written = weldb.save_panel(doc, tmp_path / "N5.weldb", canvas_w=1000, canvas_h=800)
-    data = json.loads(written["weld_positions"].read_text(encoding="utf-8"))
-    assert data.get("canvas_w") == 1000 and data.get("canvas_h") == 800
-
-
 def test_save_panel_rejects_bad_extension(tmp_path):
     doc = weldb.loads(VALID)
     with pytest.raises(InvalidFileExtensionError):
@@ -102,9 +86,7 @@ def test_archive_moves_the_whole_panel_set(tmp_path):
 
     moved = weldb.archive_panel(src)
     names = sorted(p.name for p in moved)
-    assert names == [
-        "N5.pdf", "N5.weldb", "N5_revisions.pdf", "N5_weld_positions.json",
-    ]
+    assert names == ["N5.pdf", "N5.weldb", "N5_revisions.pdf"]
     # Everything left the project root and landed in archive/.
     assert not src.exists()
     assert not (tmp_path / "N5.pdf").exists()
@@ -116,7 +98,7 @@ def test_archive_moves_the_whole_panel_set(tmp_path):
 def test_archive_skips_missing_artifacts(tmp_path):
     doc = weldb.loads(VALID)
     src = tmp_path / "N5.weldb"
-    weldb.save_panel(doc, src, render=False)  # only the .weldb exists
+    weldb.save(doc, src)  # only the .weldb exists (no render)
 
     moved = weldb.archive_panel(src)
     assert [p.name for p in moved] == ["N5.weldb"]
@@ -131,15 +113,14 @@ def test_repeated_archive_is_batch_consistent(tmp_path):
     archive = tmp_path / "archive"
     got = sorted(p.name for p in archive.iterdir())
     assert got == sorted([
-        "N5.pdf", "N5.weldb", "N5_weld_positions.json",
-        "N5_1.pdf", "N5_1.weldb", "N5_1_weld_positions.json",
-        "N5_2.pdf", "N5_2.weldb", "N5_2_weld_positions.json",
+        "N5.pdf", "N5.weldb",
+        "N5_1.pdf", "N5_1.weldb",
+        "N5_2.pdf", "N5_2.weldb",
     ])
-    # Each generation's three files carry a consistent tag (no drift).
+    # Each generation's files carry a consistent tag (no drift).
     for tag in ("", "_1", "_2"):
         assert (archive / f"N5{tag}.weldb").exists()
         assert (archive / f"N5{tag}.pdf").exists()
-        assert (archive / f"N5{tag}_weld_positions.json").exists()
 
 
 def test_archive_custom_dir(tmp_path):
@@ -160,5 +141,5 @@ def test_derived_artifact_paths(tmp_path):
     src = tmp_path / "N5.weldb"
     paths = weldb.derived_artifact_paths(src, revisions=True)
     assert paths["pdf"] == tmp_path / "N5.pdf"
-    assert paths["weld_positions"] == tmp_path / "N5_weld_positions.json"
+    assert "weld_positions" not in paths
     assert paths["revisions_pdf"] == tmp_path / "N5_revisions.pdf"

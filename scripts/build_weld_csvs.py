@@ -3,18 +3,23 @@
 
 Give it one or more .weldb files or a directory; it writes
 ``point_welds.csv``, ``linear_welds.csv`` and
-``area_welds.csv``. Each weld row carries its effective properties — the panel's
-top-level properties merged with type-level and weld-specific overrides. Point
-welds are deduplicated across a project (a duplicate prefixed ID is an error);
-any file that fails to load or validate is reported and skipped, never partially
-included.
+``area_welds.csv``. Each weld row carries its **on-drawing coordinates**
+(``x0, y0, x1, y1`` — the bounding box on the rendered PDF, in millimetres with a
+top-left origin) followed by its effective properties — the panel's top-level
+properties merged with type-level and weld-specific overrides. A weld that is
+drawn in more than one view is mapped in the **first (leftmost) view** only.
+Point welds are deduplicated across a project (a duplicate prefixed ID is an
+error); any file that fails to load or validate is reported and skipped, never
+partially included.
 
 Usage:
     python scripts/build_weld_csvs.py ./project           # a directory of .weldb
     python scripts/build_weld_csvs.py N5.weldb N6.weldb    # explicit files
     python scripts/build_weld_csvs.py ./project --out-dir ./project
 
-The weldb library is bundled; no pip install is required.
+The weldb library is bundled; no pip install is required. Computing the
+coordinate columns needs ``fpdf2`` (``pip install fpdf2``); without it the CSVs
+are still written but the ``x0..y1`` cells are left blank.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from weldb import (  # noqa: E402
+    first_view_weld_boxes,
     get_area_welds,
     get_linear_welds,
     get_point_welds,
@@ -38,11 +44,19 @@ from weldb import (  # noqa: E402
 )
 
 _PROP_EXCLUDE = {"panel_name"}
+#: Coordinate columns, in order, written before the resolved properties.
+_COORD_COLS = ["x0", "y0", "x1", "y1"]
 
 
 def _weld_props(props_by_id: dict[str, dict[str, Any]], cell: str) -> dict[str, Any]:
     props = props_by_id.get(cell, {})
     return {k: v for k, v in props.items() if k not in _PROP_EXCLUDE}
+
+
+def _coords(boxes: dict[str, dict[str, Any]], label: str) -> dict[str, Any]:
+    """The ``x0..y1`` box for a grid label, or blank cells when it has none."""
+    box = boxes.get(label)
+    return {c: (box[c] if box else "") for c in _COORD_COLS}
 
 
 def _weld_csv_text(rows: list[dict[str, Any]], id_cols: list[str]) -> str:
@@ -88,6 +102,14 @@ def build_csvs(files: list[Path]) -> tuple[dict[str, str], dict[str, int], list[
             source = path.name
             props_by_id = resolve_weld_properties(doc)
 
+            # On-drawing coordinates (leftmost view each weld appears in). Needs
+            # fpdf2; without it, coordinate cells are left blank rather than
+            # failing the whole CSV build.
+            try:
+                boxes = first_view_weld_boxes(doc)
+            except ImportError:
+                boxes = {}
+
             point_welds = get_point_welds(doc)
             linear_welds = get_linear_welds(doc)
             area_welds = get_area_welds(doc)
@@ -105,17 +127,17 @@ def build_csvs(files: list[Path]) -> tuple[dict[str, str], dict[str, int], list[
 
             new_point = [
                 {"panel": panel_name, "weld_id": file_point_ids[pw.weld_id], "source": source,
-                 **_weld_props(props_by_id, pw.weld_id)}
+                 **_coords(boxes, pw.weld_id), **_weld_props(props_by_id, pw.weld_id)}
                 for pw in point_welds
             ]
             new_linear = [
                 {"panel": panel_name, "weld_id": prefix_weld_id(panel_name, lw.weld_id), "source": source,
-                 **_weld_props(props_by_id, lw.weld_id)}
+                 **_coords(boxes, lw.weld_id), **_weld_props(props_by_id, lw.weld_id)}
                 for lw in linear_welds
             ]
             new_area = [
                 {"panel": panel_name, "weld_id": prefix_weld_id(panel_name, aw.weld_id), "source": source,
-                 **_weld_props(props_by_id, aw.weld_id)}
+                 **_coords(boxes, aw.weld_id), **_weld_props(props_by_id, aw.weld_id)}
                 for aw in area_welds
             ]
 
@@ -127,7 +149,7 @@ def build_csvs(files: list[Path]) -> tuple[dict[str, str], dict[str, int], list[
         except Exception as exc:  # noqa: BLE001 — report and skip, never abort
             skipped.append(f"{label}: {exc}")
 
-    id_cols = ["panel", "weld_id", "source"]
+    id_cols = ["panel", "weld_id", "source", *_COORD_COLS]
     texts = {
         "point_welds.csv": _weld_csv_text(point_rows, id_cols),
         "linear_welds.csv": _weld_csv_text(linear_rows, id_cols),

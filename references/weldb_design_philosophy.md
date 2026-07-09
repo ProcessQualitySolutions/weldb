@@ -8,15 +8,19 @@ The `maps` array preserves the full revision history of a panel's weld layout, b
 
 ## Always Render on Save
 
-The `.weldb` YAML is the single source of truth; the drawing PDF and the
-weld-position JSON are **derived artifacts**. A derived artifact that lags behind
-its source is worse than no artifact — it silently misrepresents the panel. So the
-standard is: **a panel is never saved without its artifacts.** Every create or
-update writes the `.weldb` and immediately re-renders its PDF and weld-position map
-in the same operation (`save_panel` / `scripts/save_panel.py`; the `create_panel*`
-scaffolds do it too). This is one operation, not a save followed by a remembered
-"now go render" step — the two cannot drift apart because they never happen apart.
-Only the project-wide CSVs, which aggregate every panel, are rebuilt separately.
+The `.weldb` YAML is the single source of truth; the drawing PDF and the weld
+CSVs are **derived artifacts**. A derived artifact that lags behind its source is
+worse than no artifact — it silently misrepresents the panel. So the standard is:
+**a panel is never saved without its artifacts, and there is no opt-out.** Every
+create or update writes the `.weldb`, immediately re-renders its PDF, and rebuilds
+the project weld CSVs in the same operation (`weldb.save_panel` renders the PDF;
+the skill's save scripts — `scripts/save_panel.py` and the `create_panel*` /
+`create_panels.py` scaffolds — rebuild the CSVs in the same run). This is one
+operation, not a save followed by a remembered "now go render" step — the pieces
+cannot drift apart because they never happen apart. The CSVs also hold each weld's
+on-drawing coordinates (`x0, y0, x1, y1`, mapped in the leftmost view the weld
+appears in), so they *are* the weld-position map — there is no separate per-panel
+position file.
 
 ## Archive, Don't Delete
 

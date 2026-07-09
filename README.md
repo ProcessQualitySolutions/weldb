@@ -39,7 +39,7 @@ and build/cache/generated junk.
 | Path | Purpose |
 |------|---------|
 | `SKILL.md` | Skill manifest + instructions (start here). |
-| `scripts/` | CLI tools: `create_panel_extended_membrane`, `create_panel`, `create_panels`, `save_panel`, `archive_panel`, `render_pdf`, `render_revision_history`, `build_weld_csvs`, `weld_positions`, `regenerate_artifacts`, `list_examples`. |
+| `scripts/` | CLI tools: `create_panel_extended_membrane`, `create_panel`, `create_panels`, `save_panel`, `archive_panel`, `render_pdf`, `render_revision_history`, `build_weld_csvs`, `query_welds`, `weld_positions_to_canvas`, `validate_welds`, `regenerate_artifacts`, `list_examples`. |
 | `src/weldb/` | The bundled `weldb` library (the logic engine). |
 | `examples/` | Worked `.weldb` arrangements to copy from. |
 | `references/` | The format/rendering/naming specs and the HTML-editor guide. |
@@ -47,16 +47,19 @@ and build/cache/generated junk.
 
 ## Scripts
 
-Each script self-bootstraps the bundled library and has `--help`. PDF and
-weld-position scripts additionally need `fpdf2` (`pip install fpdf2`).
+Each script self-bootstraps the bundled library and has `--help`. Scripts that
+render additionally need `fpdf2` (`pip install fpdf2`).
 
 ```bash
 # Extended membrane style is the default; hot-side-only view. Renders on save.
 python scripts/create_panel_extended_membrane.py N5 --mtrl "SA-210 A1" \
     --od 2.0 --wall 0.15 --units in --elevation "1850 in" --tube-start 250 --tube-end 254
-python scripts/save_panel.py N5.weldb                 # after editing: validate + re-render PDF + JSON
+python scripts/save_panel.py N5.weldb                 # after editing: validate + re-render PDF + rebuild CSVs
 python scripts/create_panels.py --spec panels.json --out-dir ./project   # many panels in one process
 python scripts/archive_panel.py N5.weldb              # retire a panel: move its whole file set to archive/
+python scripts/query_welds.py N1 --csv-dir ./project  # pull one panel's welds from the CSVs (counts, or --format json/csv)
+python scripts/weld_positions_to_canvas.py N1 --width 1200 --height 928  # PDF mm -> HTML5-canvas pixels (for a canvas-based tracker)
+python scripts/validate_welds.py ./project            # check weld-ID uniqueness + naming across a project
 python scripts/regenerate_artifacts.py ./project      # bulk: re-render CHANGED panels + rebuild CSVs
 python scripts/list_examples.py
 ```
@@ -67,11 +70,13 @@ area welds, dutchman repairs, weld-length overrides, dropped/offset tubes, extra
 views, custom fields) to match the real panel, guided by the specs and examples.
 Tubes are numbered left→right from the hot side; reverse views number in reverse.
 
-**Always render on save:** a `.weldb` is never saved without its derived
-artifacts. `save_panel.py` (and the `create_panel*` scaffolds) write the YAML and
-re-render its PDF + weld-position JSON in the same step, so they never go stale;
-run it after every edit. To retire a panel, `archive_panel.py` **moves** its whole
-file set into `archive/` rather than deleting anything (never delete a panel). Use
+**Always render on save (no opt-out):** a `.weldb` is never saved without its
+derived artifacts. `save_panel.py` (and the `create_panel*` scaffolds) write the
+YAML, re-render its PDF, and rebuild the project weld CSVs in the same step, so
+they never go stale; run it after every edit. Weld coordinates (`x0, y0, x1, y1`,
+leftmost view) live in the CSVs — there is no separate position JSON. To retire a
+panel, `archive_panel.py` **moves** its whole file set into `archive/` rather than
+deleting anything (never delete a panel). Use
 `regenerate_artifacts.py` only to re-sync a whole directory in bulk.
 
 ## Editing a map visually
@@ -100,12 +105,14 @@ pdf   = weldb.render_pdf_bytes(doc)        # render to PDF bytes (needs fpdf2)
 text  = weldb.dumps(doc)                   # serialize a dict back to .weldb text
 ```
 
-Key functions: `loads`/`dumps`, `load`/`save`, `save_panel` (save + render all
-artifacts in one call), `archive_panel`, `add_revision`,
+Key functions: `loads`/`dumps`, `load`/`save`, `save_panel` (save + render the PDF
+in one call), `archive_panel`, `add_revision`,
 `get_point_welds`/`get_linear_welds`/`get_area_welds`, `resolve_weld_properties`,
-`render_panel_bundle` (PDF + weld positions in one layout pass),
 `render_pdf`/`render_pdf_bytes`, `render_revision_history_pdf(_bytes)`,
-`render_monospace`, `weld_positions`/`weld_positions_data`,
+`render_monospace`, `weld_positions`/`weld_positions_from_doc`,
+`first_view_weld_boxes` (leftmost-view weld coordinates for the CSVs),
+`weld_canvas_boxes` (those coordinates scaled to HTML5-canvas pixels),
+`validate_project`/`validate_files` (weld-ID uniqueness + naming checks),
 `to_json`/`to_csv`/`to_xlsx`, `build_weld_log`/`prefix_weld_id`, and the
 `PointWeld`/`LinearWeld`/`AreaWeld` dataclasses. For local development it can also
 be pip-installed from a checkout: `pip install -e ".[pdf,dev]"`.

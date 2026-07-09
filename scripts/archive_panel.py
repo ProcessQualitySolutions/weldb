@@ -4,9 +4,9 @@
 Panels are never deleted outright (see ``references/project_spec.md``). To retire
 a panel from active scope — cancelled work, superseded design, completed teardown
 — this moves the whole set together into an ``archive/`` folder: the ``.weldb``
-source **and** its ``.pdf``, ``_weld_positions.json``, and ``_revisions.pdf``. The
-panel's full revision history is preserved for audit, and the active project (weld
-log, CSVs, renders) stops counting it.
+source **and** its ``.pdf`` and ``_revisions.pdf``. The panel's full revision
+history is preserved for audit, and the active project (weld log, CSVs, renders)
+stops counting it.
 
 Usage:
     python scripts/archive_panel.py N5.weldb                 # -> ./archive/

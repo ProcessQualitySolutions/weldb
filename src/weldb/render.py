@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -873,19 +872,13 @@ def render_pdf_bytes(doc: dict[str, Any], color: bool = False) -> bytes:
     return bytes(_build_panel_pdf(doc, color=color).output())
 
 
-def _build_panel_pdf(
-    doc: dict[str, Any], *, color: bool,
-    collect_positions: bool = False, include_text: bool = False,
-):
+def _build_panel_pdf(doc: dict[str, Any], *, color: bool):
     """Build the single-sheet panel drawing and return the FPDF object.
 
     Shared by :func:`render_pdf` (which writes it to a path) and
-    :func:`render_pdf_bytes` (which returns its bytes). When ``collect_positions``
-    is true, the weld-position map is gathered **in the same pass** that draws the
-    views (from the identical ``_iter_view_boxes`` geometry) and the function
-    returns ``(pdf, positions_dict)`` instead of just ``pdf`` — this is how
-    :func:`render_panel_bundle` produces the PDF and the JSON from one layout
-    build rather than two.
+    :func:`render_pdf_bytes` (which returns its bytes). The weld-position geometry
+    is derived separately by :func:`weld_positions_from_doc` from the identical
+    ``_iter_view_boxes`` layout math, so the two can never drift.
     """
     try:
         from fpdf import FPDF
@@ -911,56 +904,14 @@ def _build_panel_pdf(
     pdf.set_line_width(_LW_DOUBLE)
     pdf.line(m, title_y, m + iw, title_y)
 
-    # --- Views region (top 80%) --- draw, and (optionally) record positions in
-    # the same iteration so the geometry is computed once.
-    positions_views: list[dict[str, Any]] = []
+    # --- Views region (top 80%) ---
     for view, vx, vy, vw, vh in _iter_view_boxes(pdf, _display_views(doc)):
         _draw_view(pdf, view, vx, vy, vw, vh, color=color)
-        if collect_positions:
-            positions_views.append(
-                _view_positions(pdf, view, vx, vy, vw, vh, include_text=include_text)
-            )
 
     # --- Title block (bottom 20%) ---
     _draw_title_block(pdf, doc, m, title_y, iw, title_h, color=color)
 
-    if collect_positions:
-        return pdf, _positions_envelope(doc, pdf, positions_views)
     return pdf
-
-
-def render_panel_bundle(
-    doc: dict[str, Any],
-    *,
-    color: bool = False,
-    canvas_w: float | None = None,
-    canvas_h: float | None = None,
-    include_text: bool = False,
-) -> dict[str, Any]:
-    """Render the drawing PDF **and** the weld-position map from one layout pass.
-
-    The disk-free "always render on save" core: a single FPDF build both draws the
-    sheet and records every weld's on-sheet box, so a caller that needs both
-    artifacts (like :func:`weldb.save_panel`) does the layout work once instead of
-    building the PDF and then re-deriving the geometry a second time. Returns::
-
-        {"pdf_bytes": b"...", "positions": {<weld_positions shape>}}
-
-    ``color`` matches :func:`render_pdf`. When **both** ``canvas_w`` and
-    ``canvas_h`` are given, the positions gain integer pixel corners scaled to that
-    canvas (see :func:`weld_positions_data`). ``include_text`` also reports
-    plain-text regions (tube numbers, annotations).
-
-    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
-    """
-    if (canvas_w is None) != (canvas_h is None):
-        raise ValueError("Provide both canvas_w and canvas_h, or neither")
-    pdf, positions = _build_panel_pdf(
-        doc, color=color, collect_positions=True, include_text=include_text
-    )
-    if canvas_w is not None and canvas_h is not None:
-        _apply_canvas_pixels(positions, canvas_w, canvas_h)
-    return {"pdf_bytes": bytes(pdf.output()), "positions": positions}
 
 
 # Revision-history sheet: column widths as fractions of the inner width.
@@ -1266,89 +1217,143 @@ def _positions_envelope(doc: dict[str, Any], pdf, views_out: list[dict[str, Any]
     }
 
 
-def _apply_canvas_pixels(data: dict[str, Any], canvas_w: float, canvas_h: float) -> None:
-    """Add integer pixel corners (``px0..py1``) to every weld, scaled to a canvas.
+def first_view_weld_boxes(doc: dict[str, Any]) -> dict[str, dict[str, float]]:
+    """Bounding box of every weld in the FIRST (leftmost) view it appears in.
 
-    Scales the millimetre boxes proportionally onto a ``canvas_w`` x ``canvas_h``
-    pixel canvas — ``px = x_mm / page_width * canvas_w`` and ``py = y_mm /
-    page_height * canvas_h``. No vertical flip: both spaces put the origin at the
-    top-left. Records ``canvas_w`` / ``canvas_h`` on ``data``. Mutates in place.
+    A weld can be drawn in several views; its coordinates are reported for the
+    **leftmost view on the rendered sheet only** (views are laid left-to-right in
+    document order — see :func:`weld_positions`). Within that view, a weld that
+    renders as several disjoint regions (e.g. a membrane run broken by a point
+    weld) is reduced to one box spanning all of them.
+
+    Returns ``{grid_label: {"x0", "y0", "x1", "y1"}}`` in millimetres, top-left
+    origin (the same coordinate space as :func:`weld_positions`). Each
+    ``grid_label`` keeps its type prefix (``*``/``_``/``@``), so a caller can map
+    it to a panel-prefixed weld ID with :func:`weldb.prefix_weld_id`. These are
+    the coordinates written into the project weld CSVs.
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
     """
-    if canvas_w <= 0 or canvas_h <= 0:
-        raise ValueError("canvas_w and canvas_h must be positive")
-    sx = canvas_w / data["page_width"]
-    sy = canvas_h / data["page_height"]
-    data["canvas_w"] = canvas_w
-    data["canvas_h"] = canvas_h
-    for view in data["views"]:
+    data = weld_positions_from_doc(doc)
+    boxes: dict[str, dict[str, float]] = {}
+    for view in data["views"]:  # left-to-right; the first view a weld hits wins
         for weld in view["welds"]:
-            weld["px0"] = round(weld["x0"] * sx)
-            weld["py0"] = round(weld["y0"] * sy)
-            weld["px1"] = round(weld["x1"] * sx)
-            weld["py1"] = round(weld["y1"] * sy)
+            label = weld["id"]
+            if label in boxes:
+                continue  # already captured in an earlier (further-left) view
+            regions = [w for w in view["welds"] if w["id"] == label]
+            boxes[label] = {
+                "x0": min(r["x0"] for r in regions),
+                "y0": min(r["y0"] for r in regions),
+                "x1": max(r["x1"] for r in regions),
+                "y1": max(r["y1"] for r in regions),
+            }
+    return boxes
 
 
-def weld_positions_data(
-    doc: dict[str, Any],
-    *,
-    include_text: bool = False,
-    canvas_w: float | None = None,
-    canvas_h: float | None = None,
+def weld_canvas_boxes(
+    doc: dict[str, Any], canvas_width: float, canvas_height: float
 ) -> dict[str, Any]:
-    """Weld-position data (optionally with canvas pixels) from an in-memory ``doc``.
+    """Map a panel's weld boxes onto HTML5-canvas pixel coordinates.
 
-    The disk-free counterpart of :func:`write_weld_positions`: computes the same
-    dict (see :func:`weld_positions` for its shape) and, when both ``canvas_w``
-    and ``canvas_h`` are given, adds integer pixel corners scaled to that canvas.
-    Returns the dict instead of writing a JSON file, so a caller can serialize
-    and persist it itself.
+    The rendered PDF page and an HTML5 canvas use the **same** coordinate
+    orientation — origin at the top-left corner, x growing right, y growing
+    **down** — and :func:`weld_positions` reports every weld box in that space, in
+    millimetres, on the panel's own rendered page (``page_width`` × ``page_height``
+    mm, letter landscape). So converting to canvas pixels is a single **positive,
+    uniform scale with no axis flip and no translation** — the directions already
+    agree, nothing is inferred:
+
+        scale = canvas_width / page_width      # pixels per millimetre
+        x_px  = x_mm * scale ;  y_px = y_mm * scale
+
+    Scaling is keyed to the canvas **width** (the drawing is assumed to fill the
+    canvas horizontally, as when the rendered PDF is shown as a full-width canvas
+    background). ``canvas_height`` is used **only to validate** that no scaled weld
+    lands outside the canvas: every corner must satisfy ``0 <= x <= canvas_width``
+    and ``0 <= y <= canvas_height``. Welds that fail are still converted (so a
+    caller can inspect them) and their prefixed IDs are collected in
+    ``out_of_bounds``; ``required_canvas_height`` is the smallest height that would
+    fit the whole page at this width (``page_height * scale``). A canvas whose
+    aspect ratio matches the drawing's always fits.
+
+    Each weld is reported once, at its **leftmost-view** box (see
+    :func:`first_view_weld_boxes`), keyed by its panel-prefixed project ID
+    (``N1.T100``) so the result can be POSTed straight to a canvas-based weld
+    tracking system.
+
+    Returns::
+
+        {
+          "panel_name": "N1",
+          "canvas_width": 1200, "canvas_height": 900,
+          "page_width": 279.4, "page_height": 215.9,   # source page, mm
+          "units": "px", "origin": "top-left",
+          "scale": 4.2947,                              # px per mm
+          "required_canvas_height": 927.23,             # page_height * scale
+          "welds": [
+            {"weld_id": "N1.T25", "type": "point",
+             "x0": .., "y0": .., "x1": .., "y1": ..,     # canvas px, top-left / lower-right
+             "cx": .., "cy": ..,                         # canvas px, box centre
+             "in_bounds": true},
+            ...
+          ],
+          "out_of_bounds": ["N1.B54", ...],
+        }
 
     Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
     """
-    if (canvas_w is None) != (canvas_h is None):
-        raise ValueError("Provide both canvas_w and canvas_h, or neither")
-    data = weld_positions_from_doc(doc, include_text=include_text)
-    if canvas_w is not None and canvas_h is not None:
-        _apply_canvas_pixels(data, canvas_w, canvas_h)
-    return data
+    from weldb.weld_log import prefix_weld_id
 
+    if canvas_width <= 0 or canvas_height <= 0:
+        raise ValueError(
+            f"canvas_width and canvas_height must be positive "
+            f"(got {canvas_width} x {canvas_height})."
+        )
 
-def write_weld_positions(
-    source_path: str | Path,
-    output_path: str | Path | None = None,
-    *,
-    include_text: bool = False,
-    canvas_w: float | None = None,
-    canvas_h: float | None = None,
-) -> Path:
-    """Write a .weldb file's weld positions to a JSON file and return its path.
+    envelope = weld_positions_from_doc(doc)
+    page_width = envelope["page_width"]
+    page_height = envelope["page_height"]
+    scale = canvas_width / page_width
 
-    Mirrors :func:`render_pdf`: by default the JSON is written next to the source
-    as ``<stem>_weld_positions.json``. Pass ``output_path`` to write it elsewhere
-    (e.g. into the user's project folder rather than back into a read-only
-    reference directory).
+    panel_name = doc.get("panel_name")
+    boxes = first_view_weld_boxes(doc)
 
-    The JSON holds the same structure :func:`weld_positions` returns
-    (millimetres, top-left origin — see there for the shape and the per-region
-    semantics). When **both** ``canvas_w`` and ``canvas_h`` are given, each weld
-    additionally carries integer pixel corners (``px0, py0, px1, py1``) scaled to
-    that canvas, and the canvas size is recorded; omit them to keep the file
-    device-independent (a consumer can scale from the page dimensions itself).
+    welds: list[dict[str, Any]] = []
+    out_of_bounds: list[str] = []
+    for label, box in boxes.items():
+        x0, y0 = box["x0"] * scale, box["y0"] * scale
+        x1, y1 = box["x1"] * scale, box["y1"] * scale
+        weld_id = prefix_weld_id(panel_name, label)
+        in_bounds = (
+            0 <= x0 <= canvas_width and 0 <= x1 <= canvas_width
+            and 0 <= y0 <= canvas_height and 0 <= y1 <= canvas_height
+        )
+        if not in_bounds:
+            out_of_bounds.append(weld_id)
+        welds.append({
+            "weld_id": weld_id,
+            "type": _TYPE_BY_PREFIX.get(label[0], "text"),
+            "x0": round(x0, 2),
+            "y0": round(y0, 2),
+            "x1": round(x1, 2),
+            "y1": round(y1, 2),
+            "cx": round((x0 + x1) / 2, 2),
+            "cy": round((y0 + y1) / 2, 2),
+            "in_bounds": in_bounds,
+        })
+    welds.sort(key=lambda w: (w["y0"], w["x0"], w["weld_id"]))
 
-    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
-    """
-    source_path = Path(source_path)
-    data = weld_positions(source_path, include_text=include_text)
-
-    if (canvas_w is None) != (canvas_h is None):
-        raise ValueError("Provide both canvas_w and canvas_h, or neither")
-    if canvas_w is not None and canvas_h is not None:
-        _apply_canvas_pixels(data, canvas_w, canvas_h)
-
-    out = (
-        Path(output_path)
-        if output_path is not None
-        else source_path.with_name(f"{source_path.stem}_weld_positions.json")
-    )
-    out.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return out
+    return {
+        "panel_name": panel_name,
+        "canvas_width": canvas_width,
+        "canvas_height": canvas_height,
+        "page_width": page_width,
+        "page_height": page_height,
+        "units": "px",
+        "origin": "top-left",
+        "scale": round(scale, 4),
+        "required_canvas_height": round(page_height * scale, 2),
+        "welds": welds,
+        "out_of_bounds": out_of_bounds,
+    }

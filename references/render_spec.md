@@ -5,13 +5,27 @@ This document defines how weldb weld maps must be rendered visually, whether on 
 ## Always Render on Save
 
 Rendering is not a separate, deferred step — it is part of saving. **Whenever a
-`.weldb` file is created or updated, its derived artifacts (the drawing PDF and the
-weld-position map) are re-rendered in the same operation**, so a rendered artifact
-can never be stale relative to its source. The `.weldb` YAML is the source of
-truth; the PDF and JSON are derived and are regenerated on every save (see
-`weldb.save_panel` / `scripts/save_panel.py`, and the "Always Render on Save"
-principle in `weldb_design_philosophy.md`). The project-wide weld CSVs aggregate
-all panels and are the only artifact rebuilt separately.
+`.weldb` file is created or updated, its drawing PDF is re-rendered in the same
+operation**, so the rendered drawing can never be stale relative to its source.
+The `.weldb` YAML is the source of truth; the PDF is derived and is regenerated on
+every save (see `weldb.save_panel` / `scripts/save_panel.py`, and the "Always
+Render on Save" principle in `weldb_design_philosophy.md`). The skill's save
+scripts also rebuild the project-wide weld CSVs in the same step; those CSVs carry
+each weld's on-drawing coordinates (`x0, y0, x1, y1`, mapped in the leftmost view
+the weld appears in), so they double as the weld-position map — there is no
+separate per-panel position file. Those four numbers describe a **rectangle** —
+`(x0, y0)` top-left corner, `(x1, y1)` bottom-right corner — not two independent
+points.
+
+These coordinates are millimetres on the panel's rendered page (letter, landscape;
+~279.4 × 215.9 mm), with the origin at the **top-left** and y increasing
+**downward** — the same orientation an HTML5 canvas uses. So mapping a panel onto a
+canvas is a single positive scale keyed to the canvas width
+(`scale = canvas_width / page_width`, pixels per mm) with **no vertical flip and no
+translation**. `weldb.weld_canvas_boxes(doc, w, h)` / `scripts/weld_positions_to_canvas.py`
+do exactly this conversion and validate that nothing lands outside the canvas —
+use them to push weld positions to a canvas-based tracking system rather than
+converting coordinates by hand.
 
 ## Prefix Characters
 
