@@ -21,8 +21,10 @@ from weldb.document import (
     save,
 )
 from weldb.export import to_csv, to_json, to_xlsx
+from weldb.panel import archive_panel, derived_artifact_paths, save_panel
 from weldb.render import (
     render_monospace,
+    render_panel_bundle,
     render_pdf,
     render_pdf_bytes,
     render_revision_history_pdf,
@@ -49,6 +51,9 @@ __all__ = [
     "save",
     "dumps",
     "add_revision",
+    "save_panel",
+    "archive_panel",
+    "derived_artifact_paths",
     "custom_field_getter",
     "custom_field_setter",
     "get_point_welds",
@@ -56,6 +61,7 @@ __all__ = [
     "get_area_welds",
     "resolve_weld_properties",
     "render_monospace",
+    "render_panel_bundle",
     "render_pdf",
     "render_pdf_bytes",
     "render_revision_history_pdf",

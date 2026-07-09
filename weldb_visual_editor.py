@@ -24,6 +24,7 @@ required — no import of the ``weldb`` package, so this file stands alone.
 
 from __future__ import annotations
 
+import argparse
 import copy
 import sys
 from pathlib import Path
@@ -574,11 +575,43 @@ def _bind_wheel(canvas: tk.Canvas):
     ))
 
 
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """CLI: an optional file to open on launch (positional ``file``)."""
+    parser = argparse.ArgumentParser(
+        prog="weldb_visual_editor",
+        description=(
+            "Open the weldb visual editor. Pass a .weldb (or YAML) file to open it "
+            "directly on launch — handy for scripting, e.g. after generating a "
+            "panel. Omit it to start empty and use File > Open."
+        ),
+    )
+    parser.add_argument(
+        "file",
+        nargs="?",
+        help="Path to a .weldb/.yaml file to open on launch. If omitted, the "
+        "editor starts empty.",
+    )
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
-    argv = list(sys.argv[1:] if argv is None else argv)
-    initial = argv[0] if argv else None
+    args = _build_arg_parser().parse_args(sys.argv[1:] if argv is None else argv)
+
+    initial: Path | None = None
+    if args.file:
+        # Validate before launching the GUI so a bad path from a script fails
+        # fast with a clear message and a non-zero exit code, rather than opening
+        # an empty window.
+        initial = Path(args.file).expanduser()
+        if not initial.exists():
+            sys.stderr.write(f"weldb_visual_editor: file not found: {initial}\n")
+            return 2
+        if not initial.is_file():
+            sys.stderr.write(f"weldb_visual_editor: not a file: {initial}\n")
+            return 2
+
     root = tk.Tk()
-    WeldbEditor(root, initial)
+    WeldbEditor(root, str(initial) if initial else None)
     root.mainloop()
     return 0
 

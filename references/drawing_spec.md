@@ -136,7 +136,9 @@ Typical views for panels:
 - **`hot_side`** — the fireside of the panel (furnace-facing).
 - **`cold_side`** — the casing side of the panel. Items like clips are typically only welded on this side.
 
-A panel may have one view (simple repairs) or multiple views. The number and names of views are not constrained by the spec.
+A panel may have one view (simple repairs) or multiple views. The number and names of views are not constrained by the spec. A normal panel has **only a `hot_side` view** — add a `cold_side` or other views only when the work needs them (e.g. cold-side clips).
+
+**Tube numbering.** Tubes are numbered **left to right as seen from the hot-side view**. A **reverse/back view** (seen from behind, e.g. a cold side drawn as a mirror) has left and right swapped, so its tubes must be numbered in the **reverse** order to line up with the same physical tubes.
 
 ## Grid Format
 

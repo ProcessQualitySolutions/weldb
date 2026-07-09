@@ -865,20 +865,27 @@ def render_pdf_bytes(doc: dict[str, Any], color: bool = False) -> bytes:
 
     The in-memory counterpart of :func:`render_pdf` (same layout): pass a document
     parsed with :func:`weldb.load`/:func:`weldb.loads` and get the PDF as bytes,
-    so a caller (e.g. a stateless server) can hand it to a client to save itself
-    rather than writing a file. See :func:`render_pdf` for the ``color`` option
-    and the sheet layout.
+    so a caller can persist or forward them itself rather than writing a file. See
+    :func:`render_pdf` for the ``color`` option and the sheet layout.
 
     Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
     """
     return bytes(_build_panel_pdf(doc, color=color).output())
 
 
-def _build_panel_pdf(doc: dict[str, Any], *, color: bool):
+def _build_panel_pdf(
+    doc: dict[str, Any], *, color: bool,
+    collect_positions: bool = False, include_text: bool = False,
+):
     """Build the single-sheet panel drawing and return the FPDF object.
 
     Shared by :func:`render_pdf` (which writes it to a path) and
-    :func:`render_pdf_bytes` (which returns its bytes).
+    :func:`render_pdf_bytes` (which returns its bytes). When ``collect_positions``
+    is true, the weld-position map is gathered **in the same pass** that draws the
+    views (from the identical ``_iter_view_boxes`` geometry) and the function
+    returns ``(pdf, positions_dict)`` instead of just ``pdf`` — this is how
+    :func:`render_panel_bundle` produces the PDF and the JSON from one layout
+    build rather than two.
     """
     try:
         from fpdf import FPDF
@@ -904,14 +911,56 @@ def _build_panel_pdf(doc: dict[str, Any], *, color: bool):
     pdf.set_line_width(_LW_DOUBLE)
     pdf.line(m, title_y, m + iw, title_y)
 
-    # --- Views region (top 80%) ---
+    # --- Views region (top 80%) --- draw, and (optionally) record positions in
+    # the same iteration so the geometry is computed once.
+    positions_views: list[dict[str, Any]] = []
     for view, vx, vy, vw, vh in _iter_view_boxes(pdf, _display_views(doc)):
         _draw_view(pdf, view, vx, vy, vw, vh, color=color)
+        if collect_positions:
+            positions_views.append(
+                _view_positions(pdf, view, vx, vy, vw, vh, include_text=include_text)
+            )
 
     # --- Title block (bottom 20%) ---
     _draw_title_block(pdf, doc, m, title_y, iw, title_h, color=color)
 
+    if collect_positions:
+        return pdf, _positions_envelope(doc, pdf, positions_views)
     return pdf
+
+
+def render_panel_bundle(
+    doc: dict[str, Any],
+    *,
+    color: bool = False,
+    canvas_w: float | None = None,
+    canvas_h: float | None = None,
+    include_text: bool = False,
+) -> dict[str, Any]:
+    """Render the drawing PDF **and** the weld-position map from one layout pass.
+
+    The disk-free "always render on save" core: a single FPDF build both draws the
+    sheet and records every weld's on-sheet box, so a caller that needs both
+    artifacts (like :func:`weldb.save_panel`) does the layout work once instead of
+    building the PDF and then re-deriving the geometry a second time. Returns::
+
+        {"pdf_bytes": b"...", "positions": {<weld_positions shape>}}
+
+    ``color`` matches :func:`render_pdf`. When **both** ``canvas_w`` and
+    ``canvas_h`` are given, the positions gain integer pixel corners scaled to that
+    canvas (see :func:`weld_positions_data`). ``include_text`` also reports
+    plain-text regions (tube numbers, annotations).
+
+    Requires the ``fpdf2`` package (install with ``pip install weldb[pdf]``).
+    """
+    if (canvas_w is None) != (canvas_h is None):
+        raise ValueError("Provide both canvas_w and canvas_h, or neither")
+    pdf, positions = _build_panel_pdf(
+        doc, color=color, collect_positions=True, include_text=include_text
+    )
+    if canvas_w is not None and canvas_h is not None:
+        _apply_canvas_pixels(positions, canvas_w, canvas_h)
+    return {"pdf_bytes": bytes(pdf.output()), "positions": positions}
 
 
 # Revision-history sheet: column widths as fractions of the inner width.
@@ -1158,35 +1207,55 @@ def weld_positions_from_doc(doc: dict[str, Any], *, include_text: bool = False) 
     pdf.set_margins(0, 0, 0)
     pdf.add_page()
 
-    views_out: list[dict[str, Any]] = []
-    for view, vx, vy, vw, vh in _iter_view_boxes(pdf, _display_views(doc)):
-        grid = view["grid"]
-        rows = len(grid)
-        cols = max((len(r) for r in grid), default=0)
-        welds: list[dict[str, Any]] = []
-        if rows and cols:
-            gx, gy, gw, gh = _grid_area(pdf, view, vx, vy, vw, vh)
-            colx = _column_edges(grid, gx, gw)
-            rowh = gh / rows
-            for label, cells in _cell_regions(grid):
-                if not label or (label[0] not in _TYPE_BY_PREFIX and not include_text):
-                    continue
-                x0 = min(colx[c] for _, c in cells)
-                x1 = max(colx[c + 1] for _, c in cells)
-                y0 = min(gy + r * rowh for r, _ in cells)
-                y1 = max(gy + (r + 1) * rowh for r, _ in cells)
-                welds.append({
-                    "id": label,
-                    "type": _TYPE_BY_PREFIX.get(label[0], "text"),
-                    "x0": round(x0, 3),
-                    "y0": round(y0, 3),
-                    "x1": round(x1, 3),
-                    "y1": round(y1, 3),
-                })
-        # Deterministic order: top-to-bottom, then left-to-right, then id.
-        welds.sort(key=lambda w: (w["y0"], w["x0"], w["id"]))
-        views_out.append({"name": view["name"], "welds": welds})
+    views_out = [
+        _view_positions(pdf, view, vx, vy, vw, vh, include_text=include_text)
+        for view, vx, vy, vw, vh in _iter_view_boxes(pdf, _display_views(doc))
+    ]
+    return _positions_envelope(doc, pdf, views_out)
 
+
+def _view_positions(
+    pdf, view: dict[str, Any], vx: float, vy: float, vw: float, vh: float,
+    *, include_text: bool,
+) -> dict[str, Any]:
+    """Weld-region boxes for one already-placed view box ``(vx, vy, vw, vh)``.
+
+    Uses the same ``_grid_area`` / ``_column_edges`` / ``_cell_regions`` geometry
+    the renderer draws with, so positions always line up with the drawing. Shared
+    by :func:`weld_positions_from_doc` (which places the view boxes itself) and by
+    :func:`_build_panel_pdf` in ``collect_positions`` mode (which records positions
+    in the very same pass that draws the sheet — no second layout build).
+    """
+    grid = view["grid"]
+    rows = len(grid)
+    cols = max((len(r) for r in grid), default=0)
+    welds: list[dict[str, Any]] = []
+    if rows and cols:
+        gx, gy, gw, gh = _grid_area(pdf, view, vx, vy, vw, vh)
+        colx = _column_edges(grid, gx, gw)
+        rowh = gh / rows
+        for label, cells in _cell_regions(grid):
+            if not label or (label[0] not in _TYPE_BY_PREFIX and not include_text):
+                continue
+            x0 = min(colx[c] for _, c in cells)
+            x1 = max(colx[c + 1] for _, c in cells)
+            y0 = min(gy + r * rowh for r, _ in cells)
+            y1 = max(gy + (r + 1) * rowh for r, _ in cells)
+            welds.append({
+                "id": label,
+                "type": _TYPE_BY_PREFIX.get(label[0], "text"),
+                "x0": round(x0, 3),
+                "y0": round(y0, 3),
+                "x1": round(x1, 3),
+                "y1": round(y1, 3),
+            })
+    # Deterministic order: top-to-bottom, then left-to-right, then id.
+    welds.sort(key=lambda w: (w["y0"], w["x0"], w["id"]))
+    return {"name": view["name"], "welds": welds}
+
+
+def _positions_envelope(doc: dict[str, Any], pdf, views_out: list[dict[str, Any]]) -> dict[str, Any]:
+    """Wrap per-view weld boxes with the panel/page metadata (shared shape)."""
     return {
         "panel_name": doc.get("panel_name"),
         "page_width": round(pdf.w, 3),

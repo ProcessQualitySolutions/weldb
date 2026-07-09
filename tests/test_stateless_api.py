@@ -1,8 +1,9 @@
-"""Tests for the disk-free (stateless) library API used by the hosted MCP server.
+"""Tests for the disk-free library API (loads/dumps and the in-memory render
+helpers).
 
-These cover the string/bytes counterparts that let the server parse and render
+These cover the string/bytes counterparts that let a caller parse and render
 content without touching the filesystem: loads/dumps and the *_bytes / *_from_doc
-/ *_data render helpers.
+/ *_data render helpers — the same functions the skill's scripts rely on.
 """
 
 from __future__ import annotations
@@ -103,3 +104,29 @@ def test_weld_positions_data_requires_both_canvas_dims():
     doc = weldb.loads(VALID)
     with pytest.raises(ValueError):
         weldb.weld_positions_data(doc, canvas_w=1000)
+
+
+def test_render_panel_bundle_matches_separate_renders():
+    # The one-pass bundle must produce byte/shape-identical results to rendering
+    # the PDF and computing the positions separately (proving the refactor is
+    # equivalent, just cheaper).
+    doc = weldb.loads(VALID)
+    bundle = weldb.render_panel_bundle(doc, color=True, canvas_w=1000, canvas_h=800)
+    assert bundle["pdf_bytes"] == weldb.render_pdf_bytes(doc, color=True)
+    assert bundle["positions"] == weldb.weld_positions_data(
+        doc, canvas_w=1000, canvas_h=800
+    )
+
+
+def test_render_panel_bundle_without_canvas_has_no_pixels():
+    doc = weldb.loads(VALID)
+    bundle = weldb.render_panel_bundle(doc)
+    assert bundle["pdf_bytes"][:5] == b"%PDF-"
+    assert "canvas_w" not in bundle["positions"]
+    assert "px0" not in bundle["positions"]["views"][0]["welds"][0]
+
+
+def test_render_panel_bundle_requires_both_canvas_dims():
+    doc = weldb.loads(VALID)
+    with pytest.raises(ValueError):
+        weldb.render_panel_bundle(doc, canvas_w=1000)

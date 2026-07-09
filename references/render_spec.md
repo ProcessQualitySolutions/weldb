@@ -2,6 +2,17 @@
 
 This document defines how weldb weld maps must be rendered visually, whether on the web, in a terminal, or in print. Implementations must follow these rules to ensure consistent, unambiguous weld map drawings.
 
+## Always Render on Save
+
+Rendering is not a separate, deferred step — it is part of saving. **Whenever a
+`.weldb` file is created or updated, its derived artifacts (the drawing PDF and the
+weld-position map) are re-rendered in the same operation**, so a rendered artifact
+can never be stale relative to its source. The `.weldb` YAML is the source of
+truth; the PDF and JSON are derived and are regenerated on every save (see
+`weldb.save_panel` / `scripts/save_panel.py`, and the "Always Render on Save"
+principle in `weldb_design_philosophy.md`). The project-wide weld CSVs aggregate
+all panels and are the only artifact rebuilt separately.
+
 ## Prefix Characters
 
 Only two weld prefix characters exist. No other prefix characters are permitted in the drawing.

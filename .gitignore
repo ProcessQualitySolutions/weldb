@@ -32,8 +32,11 @@ examples/render_all_examples.py
 # Personal scratch notes
 __temp*.txt
 
-# Dev/test scratch scripts — must never be committed or shipped with the hosted
-# server. Root-anchored (leading /) so the real suite under tests/ stays tracked.
+# Packaged skill artifact (built by package.py).
+*.skill
+
+# Dev/test scratch scripts. Root-anchored (leading /) so the real suite under
+# tests/ stays tracked.
 /test_*.py
 /*_test.py
 /scratch_*.py
@@ -41,8 +44,7 @@ __temp*.txt
 /tmp_*.py
 
 # Generated artifacts, in case the repo root is ever used as a project folder
-# during local dev. The server writes these into the user's project_path, never
-# into the code tree — this keeps a stray dev render from being committed.
+# during local dev — keeps a stray dev render out of the commit.
 /*.pdf
 /*_weld_positions.json
 /point_welds.csv

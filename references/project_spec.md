@@ -2,6 +2,10 @@
 
 This document describes the intended usage patterns, file management rules, and organizational guidance for `weldb` boiler repair projects (`.weldb` files).
 
+## Who does what
+
+**Everything in this document — maintaining the project directory, deriving CSVs, rendering PDFs, quarantining/archiving files — is done locally**, using ordinary filesystem tools and the bundled `weldb` library via the skill's scripts (`scripts/save_panel.py`, `scripts/archive_panel.py`, `scripts/build_weld_csvs.py`, `scripts/create_panel.py`). The `.weldb` YAML files are the source of truth; the CSVs, PDFs, and position maps are derived artifacts — a panel's PDF and position map are re-rendered on every save, and the CSVs are rebuilt on demand. Where this document says "processing" happens, read it as a local operation on the user's machine.
+
 ## Purpose of weldb
 
 `weldb` is a **document control source of truth** for weld identification and spatial layout. It is not a quality management program. YAML files define what welds exist and where they are located — nothing more. Mutable quality data such as welder IDs, weld dates, NDE results, VT results, and WPS references belong in a separate weld tracking or QC system.
@@ -16,14 +20,18 @@ No external change-tracking system is required — the file is its own revision 
 
 ## PDF Export
 
-PDF exports follow a strict naming convention:
+The agent renders PDFs locally with the `weldb` library, then writes them into the project folder. Exports follow a strict naming convention:
 
 - The exported PDF has the **same base name** as the YAML source file, with a `.pdf` extension.
 - `N5.weldb` produces `N5.pdf`.
 
+### Always Render on Save
+
+Saving a panel and rendering its derived artifacts are **one operation, not two**. Every time a `.weldb` file is created or updated, its PDF (`<panel>.pdf`) and weld-position map (`<panel>_weld_positions.json`) are re-rendered in the same step, so a derived artifact can never lag behind its source (`weldb.save_panel` / `scripts/save_panel.py`; the `create_panel*` scaffolds render on save too). See the "Always Render on Save" principle in `weldb_design_philosophy.md`. The project-wide CSVs aggregate all panels and are rebuilt separately after a panel changes.
+
 ### Re-render Detection
 
-Whether a PDF needs to be re-rendered can be determined by comparing the modification timestamps of the YAML source file and its corresponding PDF. If the YAML file is newer than the PDF (or the PDF does not exist), the PDF must be re-rendered. If the PDF is the same age or newer than the YAML file, no re-render is needed.
+Because saving always re-renders, PDFs do not normally fall behind. For files touched outside that flow, whether a PDF needs re-rendering can still be determined by comparing modification timestamps: if the YAML is newer than the PDF (or the PDF does not exist), re-render it. The agent applies this check itself — the server does not track or render anything.
 
 ## Weld ID Uniqueness
 
@@ -40,9 +48,9 @@ project/
     N5.weldb
     N6.weldb
     E7.weldb
-    point_welds.csv        <-- auto-generated at MCP server startup
-    linear_welds.csv       <-- auto-generated at MCP server startup
-    area_welds.csv         <-- auto-generated at MCP server startup
+    point_welds.csv        <-- generated locally by the agent (weldb library)
+    linear_welds.csv       <-- generated locally by the agent (weldb library)
+    area_welds.csv         <-- generated locally by the agent (weldb library)
     quarantine/            <-- files that cause errors
     archive/               <-- cancelled or superseded scope
 ```
@@ -53,14 +61,14 @@ Files that cause exceptions during loading, weld extraction, or CSV export are m
 
 Files may be quarantined:
 
-- **Automatically** by the MCP server when a file raises an exception during startup CSV generation.
+- **Automatically** by the agent when a file raises an exception while it is (re)generating the CSVs locally with the `weldb` library.
 - **Manually** by the user or AI when a file is known to be malformed or problematic.
 
 Quarantined files are excluded from the weld log, CSV export, and PDF rendering. To restore a quarantined file, fix the issue and move it back to the project root.
 
 ### `archive/`
 
-Panels removed from the active scope — due to cancelled work, superseded designs, or completed teardowns — are moved to the `archive/` subdirectory rather than deleted.
+Panels removed from the active scope — due to cancelled work, superseded designs, or completed teardowns — are moved to the `archive/` subdirectory rather than deleted. **A panel is archived as a whole set:** its `.weldb` source **and** all of its derived files (`<panel>.pdf`, `<panel>_weld_positions.json`, `<panel>_revisions.pdf`) move together, so the archive holds the complete panel, not an orphaned source. Use `weldb.archive_panel` / `scripts/archive_panel.py`.
 
 Archived files:
 
@@ -68,11 +76,13 @@ Archived files:
 - Preserve the full revision history of the panel for audit purposes.
 - May be restored to the project root if scope is reinstated.
 
-Never delete a panel file outright. Move it to `archive/` instead.
+**Never delete a panel file outright. Move it to `archive/` instead.**
+
+Archiving is **non-destructive and batch-consistent**. Scope changes can force the same panel to be redesigned several times before its final shape is known — outside the normal append-only revision process — and a panel can be removed then re-added to scope. So archiving the same panel name more than once never overwrites an earlier archived copy: each generation is grouped under a shared suffix (`N9.*`, then `N9_1.*`, then `N9_2.*`).
 
 ### CSV Files
 
-The MCP server regenerates three CSV files at startup by loading all active `.weldb` files in the project directory (excluding `quarantine/` and `archive/`):
+The agent regenerates three CSV files locally — with the `weldb` library, from all active `.weldb` files in the project directory (excluding `quarantine/` and `archive/`) — whenever the panels change:
 
 | File | Contents |
 |------|----------|
@@ -80,7 +90,7 @@ The MCP server regenerates three CSV files at startup by loading all active `.we
 | `linear_welds.csv` | One row per linear weld ID — panel, weld ID, cell count, source file. |
 | `area_welds.csv` | One row per area weld ID — panel, weld ID, cell count, source file. |
 
-These files are always derived artifacts — the YAML files remain the source of truth. Any file that causes an exception during CSV generation is automatically moved to `quarantine/`.
+These files are always derived artifacts — the YAML files remain the source of truth. Any file that causes an exception during CSV generation should be moved to `quarantine/`.
 
 ## Organizational Guidance
 

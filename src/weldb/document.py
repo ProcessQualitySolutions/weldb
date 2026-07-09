@@ -76,8 +76,8 @@ def loads(text: str) -> dict[str, Any]:
 
     The string counterpart of :func:`load` — same validation and grid
     normalization, but no filesystem access and no extension check (a string has
-    no filename). Use this to validate/parse content supplied by a caller (e.g.
-    an MCP client that holds the file itself) without touching disk.
+    no filename). Use this to validate/parse content a caller already holds in
+    memory without touching disk.
 
     Raises MissingRequiredFieldError if any required top-level field is missing.
     """
