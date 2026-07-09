@@ -13,6 +13,8 @@ license: MIT
 
 # weldb — Boiler Weld Map Skill
 
+<sub>Developed by the [qcdatabase.ai](https://qcdatabase.ai) team.</sub>
+
 A `.weldb` file is a single YAML document that is **both** the 2D weld-map
 drawing **and** the authoritative static weld record for a boiler-repair panel:
 its properties, an append-only revision history (`maps`), and one or more views
@@ -323,6 +325,56 @@ than reasoning coordinates out by hand. Scaling is keyed to the width; the heigh
 is validated so no weld lands off-canvas (the tool fails and reports the minimum
 height if the canvas is too short for the drawing's aspect ratio). Output is JSON
 keyed by project weld ID (`N1.T100`), ready to POST.
+
+**Example tracker — qcdatabase.ai (via its MCP server).** [qcdatabase.ai](https://qcdatabase.ai)
+is a canvas-based weld/QC tracker that places each weld as a **map item** pinned to
+an uploaded drawing, using **exactly this canvas coordinate system** (pixels of the
+rendered drawing image, top-left origin, y down). So `weld_positions_to_canvas.py`
+output drops straight in. **If the `qcdatabase` MCP server is installed** (its
+`mcp__qcdatabase__*` tools are available), that's the signal to push the panel there
+— render the panel's PDF, upload it, and place its welds in one flow:
+
+1. **Upload the panel PDF.** `mcp__qcdatabase__upload_drawing` (or, when it belongs
+   to a package, `mcp__qcdatabase__upload_drawing_to_package`) with the panel's
+   rendered `<panel>.pdf`. Confirm the package/new-revision questions those tools ask.
+2. **Read the canvas size.** `mcp__qcdatabase__get_drawing` returns the sheet's pixel
+   `width`/`height` — the exact coordinate space the map items use. (Right after
+   upload these may be `null` until the server finishes rendering; call again until
+   they appear.) **Never guess the canvas size.**
+3. **Convert with that width/height.** Run
+   `python scripts/weld_positions_to_canvas.py <panel> --width <W> --height <H>`
+   using the pixels from step 2. No flip or translation is needed — the conversion is
+   a pure width scale — and the tool validates that every weld lands on-canvas.
+4. **Get the Weld schema id.** `mcp__qcdatabase__list_map_item_schemas` → the `Weld`
+   schema's id.
+5. **Place the welds.** Feed the tool's JSON to `mcp__qcdatabase__bulk_create_map_items`
+   (one batch per drawing): each weld's project ID (`N1.T100`) is the map item
+   `label`. How the canvas pixels map depends on the weld's display style (see below).
+   This adds all the sheet's weld pins in one atomic request.
+
+**Flag vs. rectangular welds — prefer rectangular for weldb.** qcdatabase.ai renders a
+map item in one of two styles, controlled by the boolean `is_rect` field on the Weld
+schema/map-item settings:
+
+- **Flag style** (`is_rect` off) — a single-point pin. Map the weld's box **centre**:
+  `x_position`/`y_position` = the tool's `cx`/`cy`.
+- **Rectangular style** (`is_rect` on) — a two-point box, defined exactly the way weldb
+  defines welds (top-left + lower-right corners). Map both corners:
+  `x_position`/`y_position` = `x0`/`y0` and `x_position_2`/`y_position_2` = `x1`/`y1`.
+
+**Every weldb boiler weld type is rectangular in its visual display**, so the
+rectangular style is the faithful representation and is the **desired setting when
+using this skill/system**. So: **if rectangular welds are turned on**, place the two
+corners (`x0,y0` → `x1,y1`). **If they are not**, recommend to the user that they
+enable rectangular welds (`is_rect`) for all weldb boiler weld types in their
+qcdatabase.ai map-item settings — until they do, fall back to flag-style centre pins
+(`cx`/`cy`), but note the boxes will render as single points rather than the weld
+rectangles.
+
+This is the intended path when a user with the qcdatabase MCP server asks to
+"upload"/"push"/"sync" a panel or its welds to their tracker: **convert with the tool,
+then upload the drawing and its welds** — don't hand-place pins or reason coordinates
+out by hand.
 
 Render PDFs **in color by default** (`render_pdf.py` and `regenerate_artifacts.py`
 already do; pass `--no-color` only if the user wants black-on-white).

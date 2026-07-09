@@ -7,6 +7,8 @@ the static weld record, for **boiler repair** projects. This repo ships as a
 **Claude skill**: `SKILL.md` plus a bundled Python library, scripts, worked
 examples, and reference specs, packaged into a single `weldb.skill` file.
 
+<sub>Developed by the [qcdatabase.ai](https://qcdatabase.ai) team.</sub>
+
 Boiler repair work usually lacks good engineering drawings — the panels to be
 replaced are chosen by the client, with engineering involved only in the repair
 spec. `weldb` fills that gap: a single `.weldb` file is both the 2D weld-map
