@@ -32,9 +32,6 @@ examples/render_all_examples.py
 # Personal scratch notes
 __temp*.txt
 
-# Packaged skill artifact (built by package.py).
-*.skill
-
 # Dev/test scratch scripts. Root-anchored (leading /) so the real suite under
 # tests/ stays tracked.
 /test_*.py

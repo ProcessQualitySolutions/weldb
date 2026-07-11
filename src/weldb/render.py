@@ -1293,8 +1293,7 @@ def weld_canvas_boxes(
           "required_canvas_height": 927.23,             # page_height * scale
           "welds": [
             {"weld_id": "N1.T25", "type": "point",
-             "x0": .., "y0": .., "x1": .., "y1": ..,     # canvas px, top-left / lower-right
-             "cx": .., "cy": ..,                         # canvas px, box centre
+             "x0": .., "y0": .., "x1": .., "y1": ..,     # canvas px, top-left / lower-right corners
              "in_bounds": true},
             ...
           ],
@@ -1338,8 +1337,6 @@ def weld_canvas_boxes(
             "y0": round(y0, 2),
             "x1": round(x1, 2),
             "y1": round(y1, 2),
-            "cx": round((x0 + x1) / 2, 2),
-            "cy": round((y0 + y1) / 2, 2),
             "in_bounds": in_bounds,
         })
     welds.sort(key=lambda w: (w["y0"], w["x0"], w["weld_id"]))

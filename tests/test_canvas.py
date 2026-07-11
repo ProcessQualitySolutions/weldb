@@ -74,7 +74,8 @@ def test_pixels_are_mm_times_scale_no_flip(doc, page_dims):
     mm = boxes["*T1"]
     assert px["x0"] == pytest.approx(mm["x0"] * scale, abs=0.02)
     assert px["y0"] == pytest.approx(mm["y0"] * scale, abs=0.02)
-    assert px["cx"] == pytest.approx((mm["x0"] + mm["x1"]) / 2 * scale, abs=0.02)
+    assert px["x1"] == pytest.approx(mm["x1"] * scale, abs=0.02)
+    assert px["y1"] == pytest.approx(mm["y1"] * scale, abs=0.02)
 
 
 def test_top_stays_top_bottom_stays_bottom(doc, page_dims):
@@ -82,7 +83,7 @@ def test_top_stays_top_bottom_stays_bottom(doc, page_dims):
     page_w, _ = page_dims
     result = weldb.weld_canvas_boxes(doc, canvas_width=page_w, canvas_height=10_000)
     by_id = {w["weld_id"]: w for w in result["welds"]}
-    assert by_id["N5.T1"]["cy"] < by_id["N5.B1"]["cy"]
+    assert by_id["N5.T1"]["y0"] < by_id["N5.B1"]["y0"]
 
 
 def test_ids_are_panel_prefixed(doc, page_dims):

@@ -34,14 +34,13 @@ as a "map item" on an uploaded drawing using this exact canvas system (top-left
 origin, y down). When its ``qcdatabase`` MCP server is installed, upload the panel
 PDF, read the sheet's pixel ``width``/``height`` with ``get_drawing``, run this tool
 with those dimensions, then POST the JSON via ``bulk_create_map_items`` (project
-weld ID -> ``label``). qcdatabase.ai supports two weld display styles: **rectangular**
-welds (two points, defined just like weldb welds) and **flag** welds (one point).
-Every weldb weld is rectangular, so prefer the rectangular style (its ``is_rect``
-map-item setting): map ``x0,y0`` -> ``x_position,y_position`` and ``x1,y1`` ->
-``x_position_2,y_position_2``. Only if rectangular welds are off, fall back to a flag
-pin at the box centre (``cx,cy``) and recommend enabling rectangular welds. Each weld
-in the output carries both the corners (``x0,y0,x1,y1``) and the centre (``cx,cy``).
-See SKILL.md, "Pushing welds to a canvas-based weld tracking system," for the full flow.
+weld ID -> ``label``). **Every weldb weld is a rectangle**, so the Weld schema's
+``is_rect`` map-item setting MUST be on: map ``x0,y0`` -> ``x_position,y_position``
+and ``x1,y1`` -> ``x_position_2,y_position_2`` (top-left and lower-right corners).
+Each weld in the output carries the box corners (``x0,y0,x1,y1``) only. If
+``is_rect`` is off on the schema, do NOT collapse the box to a point — stop and tell
+the user to enable rectangular welds first. See SKILL.md, "Pushing welds to a
+canvas-based weld tracking system," for the full flow.
 
 Usage:
     python scripts/weld_positions_to_canvas.py N1 --width 1200 --height 900

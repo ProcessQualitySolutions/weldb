@@ -104,12 +104,11 @@ artifact instead.)
 
 **Weld coordinates live in the CSVs, not a JSON file.** Each CSV row carries the
 weld's on-drawing bounding box (`x0, y0, x1, y1` — millimetres, top-left origin).
-These four numbers are a **rectangle**, not two separate points: `(x0, y0)` is the
-top-left corner and `(x1, y1)` the bottom-right corner of the weld's box on the
-drawing (`x0 ≤ x1`, `y0 ≤ y1`, y increasing downward). The coordinates are
-computed by the renderer, so treat them as that box — to get a weld's centre,
-average the corners (`((x0+x1)/2, (y0+y1)/2)`). A weld that appears in several
-views is mapped in the **leftmost view** only. The old
+These four numbers are a **rectangle**: `(x0, y0)` is the top-left corner and
+`(x1, y1)` the bottom-right corner of the weld's box on the drawing (`x0 ≤ x1`,
+`y0 ≤ y1`, y increasing downward). Every weldb weld **is** this rectangle — always
+carry both corners through; never reduce a weld to a single point. A weld that
+appears in several views is mapped in the **leftmost view** only. The old
 `<panel>_weld_positions.json` artifact no longer exists.
 
 ## Creating a panel
@@ -345,31 +344,47 @@ output drops straight in. **If the `qcdatabase` MCP server is installed** (its
    `python scripts/weld_positions_to_canvas.py <panel> --width <W> --height <H>`
    using the pixels from step 2. No flip or translation is needed — the conversion is
    a pure width scale — and the tool validates that every weld lands on-canvas.
-4. **Get the Weld schema id.** `mcp__qcdatabase__list_map_item_schemas` → the `Weld`
-   schema's id.
+4. **Pull down the relevant weld schemata and map the fields.**
+   `mcp__qcdatabase__list_map_item_schemas` and read the **full schema** for each weld
+   map-item type the panel uses — the boiler **membrane**, **area**, and **tube** weld
+   schemata (weldb's point/linear welds are membrane/tube welds; area welds map to the
+   area schema). weldb does **not** know these schemas ahead of time and must **not**
+   change them — inspect them so it can populate each weld correctly. For every schema
+   you'll use, do two things:
+   - **Confirm the geometry is rectangular** — the schema's `is_rect` must be **on**
+     (see below). This is the step where you verify it.
+   - **Map weldb data → schema fields.** Walk the schema's field list and decide, per
+     field, where its value comes from. The weldb ecosystem supplies (all inherited by
+     every weld on export): `tube_mtrl` (material), `tube_od` (tube size/OD),
+     `tube_wall` (wall thickness), `units`, `elevation`, the panel name, the weld's
+     project ID, and any per-weld overrides (e.g. `length`, `height`, header OD/wall).
+     Populate a schema field **only when the schema actually has a matching field** for
+     it; **leave weldb data out when the schema has no relevant field for it** (don't
+     invent fields), and leave schema fields weldb has no source for to their default
+     or blank. Do not guess mappings — match by the schema's own field names/types.
 5. **Place the welds.** Feed the tool's JSON to `mcp__qcdatabase__bulk_create_map_items`
    (one batch per drawing): each weld's project ID (`N1.T100`) is the map item
-   `label`. How the canvas pixels map depends on the weld's display style (see below).
-   This adds all the sheet's weld pins in one atomic request.
+   `label`, the two corners give the rectangle (see below), and populate the remaining
+   fields per the mapping you built in step 4. This adds all the sheet's weld pins in
+   one atomic request.
 
-**Flag vs. rectangular welds — prefer rectangular for weldb.** qcdatabase.ai renders a
-map item in one of two styles, controlled by the boolean `is_rect` field on the Weld
-schema/map-item settings:
+**Welds are rectangles — `is_rect` MUST be on.** In the weldb ecosystem **every
+weld is a two-point rectangle**, without exception — membrane, area, and tube welds
+alike. qcdatabase.ai stores each as a map item whose schema has the boolean `is_rect`
+field **enabled**. Map both corners: `x_position`/`y_position` = `x0`/`y0` and
+`x_position_2`/`y_position_2` = `x1`/`y1` (top-left + lower-right, exactly the way
+weldb defines a weld).
 
-- **Flag style** (`is_rect` off) — a single-point pin. Map the weld's box **centre**:
-  `x_position`/`y_position` = the tool's `cx`/`cy`.
-- **Rectangular style** (`is_rect` on) — a two-point box, defined exactly the way weldb
-  defines welds (top-left + lower-right corners). Map both corners:
-  `x_position`/`y_position` = `x0`/`y0` and `x_position_2`/`y_position_2` = `x1`/`y1`.
+**This is mandatory, not a preference.** Never place a weld as a single point and
+never compute or use a box centre — a centre pin misrepresents the weld and is the
+wrong output for this system. When you inspect each schema in step 4:
 
-**Every weldb boiler weld type is rectangular in its visual display**, so the
-rectangular style is the faithful representation and is the **desired setting when
-using this skill/system**. So: **if rectangular welds are turned on**, place the two
-corners (`x0,y0` → `x1,y1`). **If they are not**, recommend to the user that they
-enable rectangular welds (`is_rect`) for all weldb boiler weld types in their
-qcdatabase.ai map-item settings — until they do, fall back to flag-style centre pins
-(`cx`/`cy`), but note the boxes will render as single points rather than the weld
-rectangles.
+- **`is_rect` is on** → place the two corners (`x0,y0` → `x1,y1`). This is the only
+  correct path.
+- **`is_rect` is off** → **stop and do not upload.** Tell the user they must enable
+  rectangular welds (`is_rect`) on that weld map-item schema in qcdatabase.ai first.
+  weldb does not change their schemas for them. Do not fall back to a point/centre pin
+  as a workaround — wait until rectangular welds are enabled, then place the corners.
 
 This is the intended path when a user with the qcdatabase MCP server asks to
 "upload"/"push"/"sync" a panel or its welds to their tracker: **convert with the tool,
