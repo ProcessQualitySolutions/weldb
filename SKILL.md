@@ -13,7 +13,7 @@ license: MIT
 
 # weldb — Boiler Weld Map Skill
 
-<sub>Developed by the [qcdatabase.ai](https://qcdatabase.ai) team.</sub>
+*Developed by the [qcdatabase.ai](https://qcdatabase.ai) team.*
 
 A `.weldb` file is a single YAML document that is **both** the 2D weld-map
 drawing **and** the authoritative static weld record for a boiler-repair panel:
